@@ -377,45 +377,35 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                         onChanged: (v) => setState(() => _selectedConvoyeurUuid = v),
                       ),
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: TextFormField(
-                              controller: _montantCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Montant convenu',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.attach_money),
-                              ),
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              validator: (v) {
-                                if (v == null || v.trim().isEmpty) return null;
-                                if (double.tryParse(v.trim().replaceAll(',', '.')) == null) {
-                                  return 'Nombre invalide';
-                                }
-                                return null;
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            flex: 2,
-                            child: DropdownButtonFormField<String>(
-                              value: _selectedMonnaieUuid,
-                              decoration: const InputDecoration(
-                                labelText: 'Monnaie',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: [
-                                const DropdownMenuItem(value: null, child: Text('—')),
-                                ..._monnaies.map((m) =>
-                                    DropdownMenuItem(value: m.uuid, child: Text(m.label))),
-                              ],
-                              onChanged: (v) => setState(() => _selectedMonnaieUuid = v),
-                            ),
-                          ),
+                      TextFormField(
+                        controller: _montantCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Montant convenu',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.attach_money),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return null;
+                          if (double.tryParse(v.trim().replaceAll(',', '.')) == null) {
+                            return 'Nombre invalide';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _selectedMonnaieUuid,
+                        decoration: const InputDecoration(
+                          labelText: 'Monnaie',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: [
+                          const DropdownMenuItem(value: null, child: Text('—')),
+                          ..._monnaies.map((m) =>
+                              DropdownMenuItem(value: m.uuid, child: Text(m.label))),
                         ],
+                        onChanged: (v) => setState(() => _selectedMonnaieUuid = v),
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(

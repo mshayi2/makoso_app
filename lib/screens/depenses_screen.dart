@@ -13,6 +13,12 @@ const Map<String, bool?> _kDepenseStatusFilters = {
   'Validées': true,
 };
 
+const List<String> _kDepenseFormStatuses = [
+  'Automatique',
+  'En attente',
+  'Validée',
+];
+
 class DepensesScreen extends StatefulWidget {
   final Utilisateur user;
 
@@ -39,9 +45,12 @@ class _DepensesScreenState extends State<DepensesScreen> {
 
   String? _selectedMonnaieUuid;
   String _selectedStatusFilter = 'Toutes';
+  String _selectedValidationStatus = 'Automatique';
 
   List<Monnaie> _monnaies = [];
   List<DepenseRecord> _depenses = [];
+
+  static const double _autoValidationUsdThreshold = 1000;
 
   @override
   void initState() {
@@ -132,11 +141,213 @@ class _DepensesScreenState extends State<DepensesScreen> {
 
   String? _emptyToNull(String text) => text.trim().isEmpty ? null : text.trim();
 
+  String get _currentValidatorLabel {
+    final fullName = widget.user.nomComplet?.trim();
+    if (fullName != null && fullName.isNotEmpty) {
+      return fullName;
+    }
+    return widget.user.nomUtilisateur;
+  }
+
+  Monnaie? _selectedMonnaie() {
+    final monnaieUuid = _selectedMonnaieUuid;
+    if (monnaieUuid == null) {
+      return null;
+    }
+    return _monnaies.where((monnaie) => monnaie.uuid == monnaieUuid).firstOrNull;
+  }
+
+  bool _isUsdCurrency(Monnaie monnaie) {
+    final sigle = (monnaie.sigle ?? '').trim().toUpperCase();
+    final nom = monnaie.nom.trim().toUpperCase();
+    return sigle == 'USD' || nom == 'USD' || nom.contains('US') && nom.contains('DOLLAR');
+  }
+
+  String _todayIso() {
+    final now = DateTime.now();
+    return '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<_DepenseValidationDecision?> _resolveValidationDecision({
+    required double montant,
+    required Monnaie monnaie,
+  }) async {
+    if (_isUsdCurrency(monnaie)) {
+      return _buildValidationDecision(montant < _autoValidationUsdThreshold);
+    }
+
+    final rate = await _promptConversionRate(monnaie);
+    if (rate == null) {
+      return null;
+    }
+
+    final montantUsd = montant / rate;
+    return _buildValidationDecision(montantUsd < _autoValidationUsdThreshold);
+  }
+
+  _DepenseValidationDecision _buildValidationDecision(bool autoValidated) {
+    if (!autoValidated) {
+      return const _DepenseValidationDecision(
+        valide: 0,
+        dateValidation: null,
+        validateurUuid: null,
+      );
+    }
+
+    return _DepenseValidationDecision(
+      valide: 1,
+      dateValidation: _todayIso(),
+      validateurUuid: widget.user.uuid,
+    );
+  }
+
+  _DepenseValidationDecision _buildManualValidationDecision() {
+    if (_selectedValidationStatus == 'Validée') {
+      if (_editingDepense != null && _editingDepense!.valideValue > 0) {
+        return _DepenseValidationDecision(
+          valide: _editingDepense!.valideValue,
+          dateValidation: _editingDepense!.dateValidation,
+          validateurUuid: _editingDepense!.validateurUuid,
+        );
+      }
+
+      return _DepenseValidationDecision(
+        valide: 1,
+        dateValidation: _todayIso(),
+        validateurUuid: widget.user.uuid,
+      );
+    }
+
+    return const _DepenseValidationDecision(
+      valide: 0,
+      dateValidation: null,
+      validateurUuid: null,
+    );
+  }
+
+  String _currentValidateurDisplayLabel() {
+    switch (_selectedValidationStatus) {
+      case 'Validée':
+        return _editingDepense?.validateurNom ?? _currentValidatorLabel;
+      case 'En attente':
+        return '-';
+      default:
+        return _editingDepense?.validateurNom ?? '-';
+    }
+  }
+
+  Future<double?> _promptConversionRate(Monnaie monnaie) async {
+    final controller = TextEditingController();
+    String? errorText;
+    final currencyLabel = monnaie.sigle?.trim().isNotEmpty == true
+        ? monnaie.sigle!.trim()
+        : monnaie.nom;
+
+    try {
+      return await showDialog<double>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: const Text('Taux de conversion'),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Saisissez le taux pour convertir la dépense en USD.'),
+                  const SizedBox(height: 8),
+                  Text('1 USD = combien de $currencyLabel ?'),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Taux de conversion',
+                      border: const OutlineInputBorder(),
+                      errorText: errorText,
+                    ),
+                    onSubmitted: (_) {
+                      final normalized = controller.text.trim().replaceAll(',', '.');
+                      final rate = double.tryParse(normalized);
+                      if (rate == null || rate <= 0) {
+                        setDialogState(() {
+                          errorText = 'Entrez un taux valide supérieur à 0.';
+                        });
+                        return;
+                      }
+                      Navigator.of(dialogContext).pop(rate);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final normalized = controller.text.trim().replaceAll(',', '.');
+                  final rate = double.tryParse(normalized);
+                  if (rate == null || rate <= 0) {
+                    setDialogState(() {
+                      errorText = 'Entrez un taux valide supérieur à 0.';
+                    });
+                    return;
+                  }
+                  Navigator.of(dialogContext).pop(rate);
+                },
+                child: const Text('Confirmer'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
     final montant = double.tryParse(_montantCtrl.text.trim().replaceAll(',', '.'));
     if (montant == null) return;
+
+    final monnaie = _selectedMonnaie();
+    if (monnaie == null) {
+      return;
+    }
+
+    _DepenseValidationDecision validationDecision;
+    if (_selectedValidationStatus == 'Automatique') {
+      if (_editingDepense != null &&
+          _editingDepense!.montant == montant &&
+          _editingDepense!.monnaieUuid == monnaie.uuid) {
+        validationDecision = _DepenseValidationDecision(
+          valide: _editingDepense!.valideValue,
+          dateValidation: _editingDepense!.dateValidation,
+          validateurUuid: _editingDepense!.validateurUuid,
+        );
+      } else {
+        final resolvedDecision = await _resolveValidationDecision(
+          montant: montant,
+          monnaie: monnaie,
+        );
+        if (resolvedDecision == null) {
+          return;
+        }
+        validationDecision = resolvedDecision;
+      }
+    } else {
+      validationDecision = _buildManualValidationDecision();
+    }
 
     setState(() => _isSaving = true);
     final isEditing = _editingDepense != null;
@@ -149,9 +360,9 @@ class _DepensesScreenState extends State<DepensesScreen> {
           libelle: _libelleCtrl.text.trim(),
           observation: _emptyToNull(_observationCtrl.text),
           date: _emptyToNull(_dateCtrl.text),
-          valide: _editingDepense!.valideValue,
-          dateValidation: _editingDepense!.dateValidation,
-          validateurUuid: _editingDepense!.validateurUuid,
+          valide: validationDecision.valide,
+          dateValidation: validationDecision.dateValidation,
+          validateurUuid: validationDecision.validateurUuid,
         );
       } else {
         await AppDatabase.instance.createDepense(
@@ -160,6 +371,9 @@ class _DepensesScreenState extends State<DepensesScreen> {
           libelle: _libelleCtrl.text.trim(),
           observation: _emptyToNull(_observationCtrl.text),
           date: _emptyToNull(_dateCtrl.text),
+          valide: validationDecision.valide,
+          dateValidation: validationDecision.dateValidation,
+          validateurUuid: validationDecision.validateurUuid,
         );
       }
 
@@ -191,6 +405,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
       _dateCtrl.text = depense.date ?? '';
       _observationCtrl.text = depense.observation ?? '';
       _selectedMonnaieUuid = depense.monnaieUuid;
+      _selectedValidationStatus = depense.validationStatus;
     });
   }
 
@@ -199,6 +414,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
     setState(() {
       _editingDepense = null;
       _selectedMonnaieUuid = null;
+      _selectedValidationStatus = 'Automatique';
       _libelleCtrl.clear();
       _montantCtrl.clear();
       _dateCtrl.clear();
@@ -333,17 +549,33 @@ class _DepensesScreenState extends State<DepensesScreen> {
                 ),
               ),
             ),
-            _buildReadOnlyField(
+            SizedBox(
               width: fieldWidth,
-              label: 'Statut',
-              icon: Icons.verified_outlined,
-              value: _editingDepense?.validationStatus ?? 'En attente',
+              child: DropdownButtonFormField<String>(
+                value: _selectedValidationStatus,
+                decoration: const InputDecoration(
+                  labelText: 'Statut',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.verified_outlined),
+                ),
+                items: _kDepenseFormStatuses
+                    .map((status) => DropdownMenuItem(value: status, child: Text(status)))
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+                  setState(() {
+                    _selectedValidationStatus = value;
+                  });
+                },
+              ),
             ),
             _buildReadOnlyField(
               width: fieldWidth,
               label: 'Validateur',
               icon: Icons.person_outline,
-              value: _editingDepense?.validateurNom ?? '-',
+              value: _currentValidateurDisplayLabel(),
             ),
             SizedBox(
               width: (fieldWidth * 2) + gap,
@@ -630,4 +862,16 @@ class _DepensesScreenState extends State<DepensesScreen> {
       ),
     );
   }
+}
+
+class _DepenseValidationDecision {
+  final int valide;
+  final String? dateValidation;
+  final String? validateurUuid;
+
+  const _DepenseValidationDecision({
+    required this.valide,
+    required this.dateValidation,
+    required this.validateurUuid,
+  });
 }

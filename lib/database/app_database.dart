@@ -19,6 +19,7 @@ import '../models/depot_argent.dart';
 import '../models/depense.dart';
 import '../models/detail_conteneur.dart';
 import '../models/dossier.dart';
+import '../models/interchange.dart';
 import '../models/monnaie.dart';
 import '../models/voyage.dart';
 
@@ -26,8 +27,23 @@ class AppDatabase {
   AppDatabase._();
 
   static final AppDatabase instance = AppDatabase._();
+  static const List<String> syncTables = [
+    'utilisateurs',
+    'monnaies',
+    'clients',
+    'dossiers',
+    'conteneurs',
+    'detail_conteneurs',
+    'interchange',
+    'depot_argent',
+    'depenses',
+    'camions',
+    'chauffeurs_convoyeurs',
+    'voyages',
+  ];
 
   sqflite.Database? _database;
+  final Map<String, Set<String>> _tableColumnsCache = {};
 
   Future<void> initializeIfSupported() async {
     if (kIsWeb) {
@@ -173,9 +189,14 @@ class AppDatabase {
         id INTEGER,
         sync INTEGER DEFAULT 0,
         conteneur_uuid TEXT,
-        scan BLOB
+        scan BLOB,
+        page INTEGER,
+        nom_fichier TEXT
       )
     ''');
+
+    await _ensureColumn(db, 'interchange', 'page', 'INTEGER');
+    await _ensureColumn(db, 'interchange', 'nom_fichier', 'TEXT');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS depot_argent (
@@ -358,6 +379,184 @@ class AppDatabase {
         'sync = CASE WHEN sync > 0 THEN -sync ELSE sync END';
     if (where != null) sql += ' WHERE $where';
     return db.rawUpdate(sql, whereArgs ?? []);
+  }
+
+  Future<List<Map<String, Object>>> getSyncTableStates() async {
+    final db = await initialize();
+    final states = <Map<String, Object>>[];
+
+    for (final table in syncTables) {
+      final result = await db.rawQuery(
+        'SELECT COALESCE(MAX(ABS(sync)), 0) AS max_sync FROM "$table"',
+      );
+      final maxSync = ((result.first['max_sync'] as num?) ?? 0).toInt();
+      states.add({
+        'table_name': table,
+        'sync': maxSync,
+      });
+    }
+
+    return states;
+  }
+
+  Future<List<Map<String, Object?>>> getPendingSyncRecords(String table) async {
+    final db = await initialize();
+    final rows = await db.rawQuery(
+      '''
+      SELECT *
+      FROM "$table"
+      WHERE sync = 0
+         OR (id > 0 AND sync < 0)
+         OR id < 0
+      ORDER BY
+        CASE
+          WHEN sync = 0 THEN 0
+          WHEN id > 0 AND sync < 0 THEN 1
+          WHEN id < 0 THEN 2
+          ELSE 3
+        END,
+        ABS(COALESCE(id, 0)) ASC,
+        uuid ASC
+      ''',
+    );
+    return rows.map((row) => Map<String, Object?>.from(row)).toList();
+  }
+
+  Future<void> upsertSyncRecord(String table, Map<String, dynamic> record) async {
+    final db = await initialize();
+    final sanitized = await _sanitizeSyncRecord(table, record);
+    if (sanitized.isEmpty) {
+      return;
+    }
+    await db.insert(
+      table,
+      sanitized,
+      conflictAlgorithm: sqflite.ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<int> updateSyncRecordIfMatches(
+    String table,
+    Map<String, dynamic> record, {
+    required int expectedSync,
+  }) async {
+    final db = await initialize();
+    final sanitized = await _sanitizeSyncRecord(table, record);
+    final uuid = sanitized.remove('uuid')?.toString();
+    if (uuid == null || uuid.isEmpty || sanitized.isEmpty) {
+      return 0;
+    }
+
+    final setClauses = sanitized.keys.map((key) => '"$key" = ?').join(', ');
+    return db.rawUpdate(
+      'UPDATE "$table" SET $setClauses WHERE uuid = ? AND ABS(sync) = ?',
+      [...sanitized.values, uuid, expectedSync],
+    );
+  }
+
+  Future<int> deleteSyncRecordIfMatches(
+    String table, {
+    required int expectedId,
+    required int expectedSync,
+    String? uuid,
+  }) async {
+    final db = await initialize();
+    final whereParts = <String>[
+      'ABS(id) = ?',
+      'ABS(sync) = ?',
+    ];
+    final whereArgs = <Object?>[expectedId, expectedSync];
+
+    if (uuid != null && uuid.isNotEmpty) {
+      whereParts.add('uuid = ?');
+      whereArgs.add(uuid);
+    }
+
+    return db.delete(
+      table,
+      where: whereParts.join(' AND '),
+      whereArgs: whereArgs,
+    );
+  }
+
+  Future<int> updateSyncValue(
+    String table, {
+    required String uuid,
+    required int newSync,
+  }) async {
+    final db = await initialize();
+    return db.update(
+      table,
+      {'sync': newSync},
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
+  }
+
+  Future<int> hardDeleteByUuid(String table, String uuid) async {
+    final db = await initialize();
+    return db.delete(table, where: 'uuid = ?', whereArgs: [uuid]);
+  }
+
+  Future<Map<String, Object?>?> getRawRecordByUuid(String table, String uuid) async {
+    final db = await initialize();
+    final rows = await db.query(
+      table,
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    return Map<String, Object?>.from(rows.first);
+  }
+
+  Future<Map<String, Object?>> _sanitizeSyncRecord(
+    String table,
+    Map<String, dynamic> record,
+  ) async {
+    final allowedColumns = await _getTableColumns(table);
+    final sanitized = <String, Object?>{};
+
+    for (final entry in record.entries) {
+      final key = entry.key;
+      if (!allowedColumns.contains(key)) {
+        continue;
+      }
+      sanitized[key] = _normalizeSyncValue(entry.value);
+    }
+
+    return sanitized;
+  }
+
+  Future<Set<String>> _getTableColumns(String table) async {
+    final cached = _tableColumnsCache[table];
+    if (cached != null) {
+      return cached;
+    }
+
+    final db = await initialize();
+    final rows = await db.rawQuery('PRAGMA table_info("$table")');
+    final columns = rows
+        .map((row) => row['name'])
+        .whereType<String>()
+        .toSet();
+    _tableColumnsCache[table] = columns;
+    return columns;
+  }
+
+  Object? _normalizeSyncValue(Object? value) {
+    if (value is bool) {
+      return value ? 1 : 0;
+    }
+    if (value is Uint8List) {
+      return value;
+    }
+    if (value is List || value is Map) {
+      return jsonEncode(value);
+    }
+    return value;
   }
 
   // ── Seed ────────────────────────────────────────────────────────────────────
@@ -779,6 +978,51 @@ class AppDatabase {
     await smartDelete('detail_conteneurs', where: 'uuid = ?', whereArgs: [uuid]);
   }
 
+  // ── Interchange CRUD ──────────────────────────────────────────────────────
+
+  Future<List<Interchange>> getInterchangesByConteneur(String conteneurUuid) async {
+    final rows = await smartQuery(
+      'interchange',
+      where: 'conteneur_uuid = ?',
+      whereArgs: [conteneurUuid],
+      orderBy: 'page ASC',
+    );
+    return rows.map(Interchange.fromMap).toList();
+  }
+
+  Future<Map<String, int>> getInterchangeCountsByConteneur() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT conteneur_uuid, COUNT(*) AS total
+      FROM interchange
+      WHERE id > 0 AND conteneur_uuid IS NOT NULL
+      GROUP BY conteneur_uuid
+    ''');
+    return {
+      for (final row in rows)
+        row['conteneur_uuid'] as String: (row['total'] as num).toInt(),
+    };
+  }
+
+  Future<void> createInterchange({
+    required String conteneurUuid,
+    required Uint8List scan,
+    required String nomFichier,
+    int? page,
+  }) async {
+    await smartInsert('interchange', {
+      'uuid': const Uuid().v4(),
+      'conteneur_uuid': conteneurUuid,
+      'scan': scan,
+      'nom_fichier': nomFichier,
+      'page': page,
+    });
+  }
+
+  Future<void> deleteInterchange(String uuid) async {
+    await smartDelete('interchange', where: 'uuid = ?', whereArgs: [uuid]);
+  }
+
   void _appendDepotArgentFilters(
     List<String> whereClauses,
     List<Object?> args, {
@@ -1144,6 +1388,9 @@ class AppDatabase {
     required String libelle,
     String? observation,
     String? date,
+    int? valide,
+    String? dateValidation,
+    String? validateurUuid,
   }) async {
     final hasDuplicate = await _depenseDuplicateExists(
       monnaieUuid: monnaieUuid,
@@ -1161,9 +1408,9 @@ class AppDatabase {
       'libelle': libelle,
       'observation': observation,
       'date': date,
-      'valide': 0,
-      'date_validation': null,
-      'validateur_uuid': null,
+      'valide': valide ?? 0,
+      'date_validation': dateValidation,
+      'validateur_uuid': validateurUuid,
       'monnaie_uuid': monnaieUuid,
     });
   }
@@ -1286,5 +1533,95 @@ class AppDatabase {
 
   Future<void> deleteVoyage(String uuid) async {
     await smartDelete('voyages', where: 'uuid = ?', whereArgs: [uuid]);
+  }
+
+  // ─── Dashboard helpers ────────────────────────────────────────────────────
+
+  /// Returns one row per currency with totals:
+  /// sigle, nom, total_depot, total_depense (validated), solde.
+  /// Also returns the count of pending (non-validated) depenses as a
+  /// separate single-row query via [getPendingDepenseCount].
+  Future<List<Map<String, Object?>>> getDashboardFinancialRows() async {
+    final db = await initialize();
+    // Collect all currencies that appear in depot_argent or depenses.
+    final rows = await db.rawQuery('''
+      SELECT
+        m.uuid        AS monnaie_uuid,
+        m.nom         AS nom,
+        m.sigle       AS sigle,
+        COALESCE((
+          SELECT SUM(d.montant)
+          FROM depot_argent d
+          WHERE d.monnaie_uuid = m.uuid
+        ), 0) AS total_depot,
+        COALESCE((
+          SELECT SUM(e.montant)
+          FROM depenses e
+          WHERE e.monnaie_uuid = m.uuid
+            AND e.valide = 1
+        ), 0) AS total_depense
+      FROM monnaies m
+      WHERE m.uuid IN (
+        SELECT DISTINCT monnaie_uuid FROM depot_argent WHERE monnaie_uuid IS NOT NULL
+        UNION
+        SELECT DISTINCT monnaie_uuid FROM depenses WHERE monnaie_uuid IS NOT NULL
+      )
+      ORDER BY m.nom ASC
+    ''');
+    return rows.toList();
+  }
+
+  Future<int> getPendingDepenseCount() async {
+    final db = await initialize();
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS cnt FROM depenses WHERE valide = 0 OR valide IS NULL',
+    );
+    return (result.first['cnt'] as int?) ?? 0;
+  }
+
+  Future<Map<String, int>> getDashboardVoyageStats() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN statut = 'En cours' THEN 1 ELSE 0 END) AS en_cours,
+        SUM(CASE WHEN statut = 'En attente' THEN 1 ELSE 0 END) AS en_attente
+      FROM voyages
+    ''');
+    final row = rows.first;
+    return {
+      'total': (row['total'] as int?) ?? 0,
+      'en_cours': (row['en_cours'] as int?) ?? 0,
+      'en_attente': (row['en_attente'] as int?) ?? 0,
+    };
+  }
+
+  /// Dossiers where at least one payment date is set, is past today,
+  /// and the dossier is not yet clôturé or annulé.
+  Future<List<Map<String, Object?>>> getDossiersEnRetard() async {
+    final db = await initialize();
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final rows = await db.rawQuery('''
+      SELECT
+        dos.uuid,
+        dos.numero_bl,
+        dos.statut,
+        dos.date_paiement_30_draft,
+        dos.date_paiement_30_pn,
+        dos.date_paiement_40_matadi,
+        dos.date_creation,
+        c.nom AS client_nom
+      FROM dossiers dos
+      LEFT JOIN clients c ON c.uuid = dos.client_uuid
+      WHERE LOWER(COALESCE(dos.statut, '')) NOT IN ('clôturé', 'cloture', 'annulé', 'annule')
+        AND (
+          (dos.date_paiement_30_draft IS NOT NULL AND dos.date_paiement_30_draft < ?)
+          OR (dos.date_paiement_30_pn IS NOT NULL AND dos.date_paiement_30_pn < ?)
+          OR (dos.date_paiement_40_matadi IS NOT NULL AND dos.date_paiement_40_matadi < ?)
+        )
+      ORDER BY
+        MIN(dos.date_paiement_30_draft, dos.date_paiement_30_pn, dos.date_paiement_40_matadi) ASC
+    ''', [today, today, today]);
+    return rows.toList();
   }
 }

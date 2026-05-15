@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
@@ -5,8 +8,17 @@ import '../models/client.dart';
 import '../models/conteneur.dart';
 import '../models/detail_conteneur.dart';
 import '../models/dossier.dart';
+import '../models/interchange.dart';
 
 const List<String> _kStatuts = [
+  'En attente',
+  'En cours',
+  'Clôturé',
+  'Annulé',
+];
+
+const List<String> _kDossierStatusFilters = [
+  'Tous',
   'En attente',
   'En cours',
   'Clôturé',
@@ -42,6 +54,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
 
   String? _selectedClientUuid;
   String? _selectedStatut;
+  String _selectedStatusFilter = 'Tous';
 
   Dossier? _editingDossier;
   bool _isSaving = false;
@@ -92,8 +105,14 @@ class _DossiersScreenState extends State<DossiersScreen> {
 
   List<Dossier> get _filteredDossiers {
     final q = _searchCtrl.text.trim().toLowerCase();
-    if (q.isEmpty) return _dossiers;
     return _dossiers.where((d) {
+      final matchesStatus = _selectedStatusFilter == 'Tous' || d.statut == _selectedStatusFilter;
+      if (!matchesStatus) {
+        return false;
+      }
+      if (q.isEmpty) {
+        return true;
+      }
       return (d.numeroBl ?? '').toLowerCase().contains(q) ||
           (d.portChargement ?? '').toLowerCase().contains(q) ||
           (d.portDestination ?? '').toLowerCase().contains(q) ||
@@ -269,9 +288,11 @@ class _DossiersScreenState extends State<DossiersScreen> {
         : await AppDatabase.instance.getDetailsByConteneur(selectedConteneur.uuid);
     var isSaving = false;
     var isSavingDetail = false;
+    var interchangeCounts = await AppDatabase.instance.getInterchangeCountsByConteneur();
 
     Future<void> refreshConteneurs(StateSetter setDialogState) async {
       final items = await AppDatabase.instance.getConteneursByDossier(dossier.uuid);
+      final counts = await AppDatabase.instance.getInterchangeCountsByConteneur();
       final selectedUuid = selectedConteneur?.uuid;
       final nextSelected = items.where((item) => item.uuid == selectedUuid).firstOrNull ?? items.firstOrNull;
       final nextDetails = nextSelected == null
@@ -280,6 +301,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
       if (!mounted) return;
       setDialogState(() {
         conteneurs = items;
+        interchangeCounts = counts;
         selectedConteneur = nextSelected;
         details = nextDetails;
       });
@@ -553,6 +575,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                                 columns: const [
                                                   DataColumn(label: Text('Numéro conteneur')),
                                                   DataColumn(label: Text('Dimension')),
+                                                  DataColumn(label: Text('Interchange')),
                                                   DataColumn(label: Text('Actions')),
                                                 ],
                                                 rows: conteneurs.map((conteneur) {
@@ -578,11 +601,25 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                                         ),
                                                       ),
                                                       DataCell(Text(conteneur.dimension ?? '-')),
+                                                      DataCell(Text((interchangeCounts[conteneur.uuid] ?? 0).toString())),
                                                       DataCell(
-                                                        IconButton(
-                                                          icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                                          tooltip: 'Supprimer le conteneur et ses détails',
-                                                          onPressed: () => deleteConteneur(conteneur),
+                                                        Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            IconButton(
+                                                              icon: const Icon(Icons.swap_horiz, color: Color(0xFF1565C0)),
+                                                              tooltip: 'Gérer les interchanges',
+                                                              onPressed: () async {
+                                                                await _showInterchangesDialog(dialogContext, conteneur);
+                                                                await refreshConteneurs(setDialogState);
+                                                              },
+                                                            ),
+                                                            IconButton(
+                                                              icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                                              tooltip: 'Supprimer le conteneur et ses détails',
+                                                              onPressed: () => deleteConteneur(conteneur),
+                                                            ),
+                                                          ],
                                                         ),
                                                       ),
                                                     ],
@@ -734,6 +771,272 @@ class _DossiersScreenState extends State<DossiersScreen> {
       nomArticleCtrl.dispose();
       quantiteCtrl.dispose();
       uniteMesureCtrl.dispose();
+    }
+  }
+
+  Future<void> _showInterchangesDialog(
+    BuildContext parentContext,
+    Conteneur conteneur,
+  ) async {
+    final pageCtrl = TextEditingController();
+    final nomFichierCtrl = TextEditingController();
+    Uint8List? selectedScanBytes;
+    String? selectedScanName;
+    var interchanges = await AppDatabase.instance.getInterchangesByConteneur(conteneur.uuid);
+    var isSaving = false;
+
+    try {
+      if (!mounted) return;
+      if (!parentContext.mounted) return;
+      await showDialog<void>(
+        context: parentContext,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (ctx, setDialogState) {
+              Future<void> pickFile() async {
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.any,
+                  allowMultiple: false,
+                  withData: true,
+                );
+                if (result != null && result.files.isNotEmpty) {
+                  final file = result.files.first;
+                  if (file.bytes != null) {
+                    setDialogState(() {
+                      selectedScanBytes = file.bytes;
+                      selectedScanName = file.name;
+                      if (nomFichierCtrl.text.isEmpty) {
+                        nomFichierCtrl.text = file.name;
+                      }
+                    });
+                  }
+                }
+              }
+
+              Future<void> save() async {
+                if (selectedScanBytes == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Veuillez choisir un fichier scan.')),
+                  );
+                  return;
+                }
+                final nomFichier = nomFichierCtrl.text.trim();
+                if (nomFichier.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Le nom de fichier est requis.')),
+                  );
+                  return;
+                }
+                final pageText = pageCtrl.text.trim();
+                final page = pageText.isEmpty ? null : int.tryParse(pageText);
+                if (pageText.isNotEmpty && page == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Le numéro de page est invalide.')),
+                  );
+                  return;
+                }
+                setDialogState(() => isSaving = true);
+                try {
+                  await AppDatabase.instance.createInterchange(
+                    conteneurUuid: conteneur.uuid,
+                    scan: selectedScanBytes!,
+                    nomFichier: nomFichier,
+                    page: page,
+                  );
+                  pageCtrl.clear();
+                  nomFichierCtrl.clear();
+                  final items = await AppDatabase.instance.getInterchangesByConteneur(conteneur.uuid);
+                  if (!mounted) return;
+                  setDialogState(() {
+                    selectedScanBytes = null;
+                    selectedScanName = null;
+                    interchanges = items;
+                  });
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+                    );
+                  }
+                } finally {
+                  if (mounted) setDialogState(() => isSaving = false);
+                }
+              }
+
+              Future<void> deleteInterchange(Interchange interchange) async {
+                final confirmed = await showDialog<bool>(
+                  context: ctx,
+                  builder: (c) => AlertDialog(
+                    title: const Text('Supprimer l\'interchange'),
+                    content: Text(
+                      'Supprimer l\'interchange page ${interchange.page ?? '-'} (${interchange.nomFichier ?? interchange.uuid}) ?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(c, false),
+                        child: const Text('Annuler'),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => Navigator.pop(c, true),
+                        child: const Text('Supprimer'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed != true) return;
+                await AppDatabase.instance.deleteInterchange(interchange.uuid);
+                final items = await AppDatabase.instance.getInterchangesByConteneur(conteneur.uuid);
+                if (!mounted) return;
+                setDialogState(() => interchanges = items);
+              }
+
+              return AlertDialog(
+                title: Text('Interchanges – ${conteneur.numeroConteneur ?? conteneur.uuid}'),
+                content: SizedBox(
+                  width: 700,
+                  height: 520,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Card(
+                        color: Colors.blue.shade50,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Ajouter un interchange',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF1A237E),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: pageCtrl,
+                                      decoration: const InputDecoration(
+                                        labelText: 'N° de page',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.tag),
+                                        isDense: true,
+                                      ),
+                                      keyboardType: TextInputType.number,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    flex: 2,
+                                    child: TextField(
+                                      controller: nomFichierCtrl,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Nom fichier',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.insert_drive_file_outlined),
+                                        isDense: true,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: pickFile,
+                                    icon: const Icon(Icons.attach_file),
+                                    label: Text(
+                                      selectedScanName ?? 'Choisir le fichier scan',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  ElevatedButton.icon(
+                                    onPressed: isSaving ? null : save,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF1A237E),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    icon: isSaving
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              color: Colors.white,
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(Icons.save_outlined),
+                                    label: const Text('Enregistrer'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Interchanges (${interchanges.length})',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A237E),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: interchanges.isEmpty
+                            ? const Center(child: Text('Aucun interchange pour ce conteneur.'))
+                            : SingleChildScrollView(
+                                child: DataTable(
+                                  headingRowColor: WidgetStateProperty.all(
+                                    const Color(0xFF1A237E).withValues(alpha: 0.08),
+                                  ),
+                                  columns: const [
+                                    DataColumn(label: Text('Page')),
+                                    DataColumn(label: Text('Nom fichier')),
+                                    DataColumn(label: Text('Actions')),
+                                  ],
+                                  rows: interchanges.map((ic) {
+                                    return DataRow(cells: [
+                                      DataCell(Text(ic.page?.toString() ?? '-')),
+                                      DataCell(Text(ic.nomFichier ?? '-')),
+                                      DataCell(
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                          tooltip: 'Supprimer',
+                                          onPressed: () => deleteInterchange(ic),
+                                        ),
+                                      ),
+                                    ]);
+                                  }).toList(),
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Fermer'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      pageCtrl.dispose();
+      nomFichierCtrl.dispose();
     }
   }
 
@@ -972,22 +1275,45 @@ class _DossiersScreenState extends State<DossiersScreen> {
               ],
             ),
             const Divider(height: 24),
-            TextField(
-              controller: _searchCtrl,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: 'Rechercher...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchCtrl.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () => setState(() => _searchCtrl.clear()),
-                      )
-                    : null,
-                border: const OutlineInputBorder(),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      hintText: 'Rechercher...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () => setState(() => _searchCtrl.clear()),
+                            )
+                          : null,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _kDossierStatusFilters.map((label) {
+                      final selected = _selectedStatusFilter == label;
+                      return ChoiceChip(
+                        label: Text(label),
+                        selected: selected,
+                        onSelected: (_) => setState(() => _selectedStatusFilter = label),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             if (_isLoading)

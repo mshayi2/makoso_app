@@ -14,14 +14,6 @@ const List<String> _kDepotLibelles = [
   'Voyage camion',
 ];
 
-const Map<String, List<String>?> _kStatusFilters = {
-  'Tous': null,
-  'En attente': ['en attente'],
-  'En cours': ['en cours'],
-  'Terminé / Clôturé': ['terminé', 'termine', 'clôturé', 'cloturé'],
-  'Annulé': ['annulé', 'annule'],
-};
-
 class DepotArgentScreen extends StatefulWidget {
   final Utilisateur user;
 
@@ -34,6 +26,7 @@ class DepotArgentScreen extends StatefulWidget {
 class _DepotArgentScreenState extends State<DepotArgentScreen> {
   final _formKey = GlobalKey<FormState>();
   final _montantCtrl = TextEditingController();
+  final _agentCtrl = TextEditingController();
   final _datePaiementCtrl = TextEditingController();
   final _observationCtrl = TextEditingController();
   final _searchCtrl = TextEditingController();
@@ -48,7 +41,6 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   String? _selectedLibelle;
   String? _selectedMonnaieUuid;
   String? _selectedSourceUuid;
-  String _selectedStatusFilter = 'Tous';
 
   List<Monnaie> _monnaies = [];
   List<DepotSourceOption> _sources = [];
@@ -60,12 +52,6 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
     return 'Source *';
   }
 
-  String get _agentLabel {
-    final nom = widget.user.nomComplet?.trim();
-    if (nom != null && nom.isNotEmpty) return nom;
-    return widget.user.nomUtilisateur;
-  }
-
   @override
   void initState() {
     super.initState();
@@ -75,6 +61,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   @override
   void dispose() {
     _montantCtrl.dispose();
+    _agentCtrl.dispose();
     _datePaiementCtrl.dispose();
     _observationCtrl.dispose();
     _searchCtrl.dispose();
@@ -99,10 +86,8 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
     final targetPage = resetPage ? 0 : (page ?? _currentPage);
     setState(() => _isGridLoading = true);
     final search = _searchCtrl.text;
-    final statuses = _kStatusFilters[_selectedStatusFilter];
     final total = await AppDatabase.instance.getDepotArgentCount(
       search: search,
-      sourceStatuses: statuses,
     );
     final maxPage = total <= 0 ? 0 : (total - 1) ~/ _kDepotPageSize;
     final safePage = total <= 0
@@ -114,7 +99,6 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                 : targetPage;
     final records = await AppDatabase.instance.getDepotArgentRecords(
       search: search,
-      sourceStatuses: statuses,
       limit: _kDepotPageSize,
       offset: safePage * _kDepotPageSize,
     );
@@ -196,7 +180,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
           observation: _emptyToNull(_observationCtrl.text),
           datePaiement: _emptyToNull(_datePaiementCtrl.text),
           sourceUuid: _selectedSourceUuid!,
-          agent: _editingDepot!.agent ?? _agentLabel,
+          agent: _emptyToNull(_agentCtrl.text),
         );
       } else {
         await AppDatabase.instance.createDepotArgent(
@@ -206,7 +190,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
           observation: _emptyToNull(_observationCtrl.text),
           datePaiement: _emptyToNull(_datePaiementCtrl.text),
           sourceUuid: _selectedSourceUuid!,
-          agent: _agentLabel,
+          agent: _emptyToNull(_agentCtrl.text),
         );
       }
 
@@ -237,6 +221,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
       _selectedMonnaieUuid = depot.monnaieUuid;
       _selectedSourceUuid = depot.sourceUuid;
       _montantCtrl.text = depot.montant?.toString() ?? '';
+      _agentCtrl.text = depot.agent ?? '';
       _datePaiementCtrl.text = depot.datePaiement ?? '';
       _observationCtrl.text = depot.observation ?? '';
     });
@@ -256,6 +241,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
       _selectedSourceUuid = null;
       _sources = [];
       _montantCtrl.clear();
+      _agentCtrl.clear();
       _datePaiementCtrl.clear();
       _observationCtrl.clear();
     });
@@ -409,8 +395,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
             SizedBox(
               width: fieldWidth,
               child: TextFormField(
-                initialValue: _editingDepot?.agent ?? _agentLabel,
-                readOnly: true,
+                controller: _agentCtrl,
                 decoration: const InputDecoration(
                   labelText: 'Agent',
                   border: OutlineInputBorder(),
@@ -467,17 +452,6 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
         );
       },
     );
-  }
-
-  Color _statusColor(String? status) {
-    return switch (status) {
-      'En attente' => Colors.orange,
-      'En cours' => Colors.indigo,
-      'Terminé' => Colors.green,
-      'Clôturé' => Colors.green,
-      'Annulé' => Colors.red,
-      _ => Colors.grey,
-    };
   }
 
   Widget _buildPaginationBar() {
@@ -586,25 +560,6 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _kStatusFilters.keys.map((label) {
-                      final selected = _selectedStatusFilter == label;
-                      return ChoiceChip(
-                        label: Text(label),
-                        selected: selected,
-                        onSelected: (_) async {
-                          setState(() => _selectedStatusFilter = label);
-                          await _loadGrid(resetPage: true);
-                        },
-                      );
-                    }).toList(),
-                  ),
-                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -626,7 +581,6 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                         DataColumn(label: Text('Date')),
                         DataColumn(label: Text('Libellé')),
                         DataColumn(label: Text('Source')),
-                        DataColumn(label: Text('Statut')),
                         DataColumn(label: Text('Montant')),
                         DataColumn(label: Text('Monnaie')),
                         DataColumn(label: Text('Agent')),
@@ -643,26 +597,6 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                             DataCell(Text(_formatDate(depot.datePaiement))),
                             DataCell(Text(depot.libelle ?? '-')),
                             DataCell(Text(depot.sourceLabel ?? '-')),
-                            DataCell(
-                              depot.sourceStatut != null
-                                  ? Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: _statusColor(depot.sourceStatut).withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: _statusColor(depot.sourceStatut).withValues(alpha: 0.4)),
-                                      ),
-                                      child: Text(
-                                        depot.sourceStatut!,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: _statusColor(depot.sourceStatut),
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    )
-                                  : const Text('-'),
-                            ),
                             DataCell(Text(depot.montant != null ? depot.montant!.toStringAsFixed(2) : '-')),
                             DataCell(Text(depot.monnaieLabel)),
                             DataCell(Text(depot.agent ?? '-')),

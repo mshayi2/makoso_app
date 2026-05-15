@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
 import '../models/utilisateur.dart';
+import '../services/sync_service.dart';
 import 'camions_screen.dart';
 import 'chauffeurs_convoyeurs_screen.dart';
 import 'clients_screen.dart';
@@ -9,6 +12,7 @@ import 'depot_argent_screen.dart';
 import 'depenses_screen.dart';
 import 'dossiers_screen.dart';
 import 'login_screen.dart';
+import 'tableau_de_bord_screen.dart';
 import 'utilisateurs_screen.dart';
 import 'voyages_screen.dart';
 
@@ -59,6 +63,14 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   late _NavOption _selected;
+  Timer? _syncTimer;
+  StreamSubscription<SyncNotification>? _syncSubscription;
+  bool _syncInProgress = AppSyncService.instance.isRunning;
+  DateTime? _lastSyncCompletedAt = AppSyncService.instance.lastCompletedAt;
+  String? _lastSyncError = AppSyncService.instance.lastError;
+  int _dataVersion = 0;
+  int _pendingManualSyncEvents = 0;
+  late final Map<_NavOption, int> _screenVersions;
 
   @override
   void initState() {
@@ -66,11 +78,161 @@ class _MainScreenState extends State<MainScreen> {
     _selected = widget.user.role == 'caissier'
         ? _NavOption.depotArgent
         : _NavOption.tableauDeBord;
-    if (widget.showDefaultPasswordWarning) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+    _screenVersions = {
+      for (final option in _NavOption.values) option: 0,
+    };
+    _syncSubscription = AppSyncService.instance.notifications.listen(
+      _handleSyncNotification,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      if (widget.showDefaultPasswordWarning) {
         _showDefaultPasswordAlert();
+      }
+
+      _startBackgroundSync();
+    });
+  }
+
+  @override
+  void dispose() {
+    _syncTimer?.cancel();
+    _syncSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _startBackgroundSync() {
+    _syncTimer?.cancel();
+    unawaited(_runSynchronization(showFeedback: false));
+    _syncTimer = Timer.periodic(const Duration(minutes: 20), (_) {
+      unawaited(_runSynchronization(showFeedback: false));
+    });
+  }
+
+  Future<void> _runSynchronization({required bool showFeedback}) async {
+    if (showFeedback) {
+      _pendingManualSyncEvents++;
+    }
+
+    if (mounted) {
+      setState(() {
+        _syncInProgress = true;
       });
     }
+
+    final result = await AppSyncService.instance.synchronize();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _syncInProgress = AppSyncService.instance.isRunning;
+      _lastSyncCompletedAt = AppSyncService.instance.lastCompletedAt;
+      _lastSyncError = AppSyncService.instance.lastError;
+    });
+
+    if (!showFeedback) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          result.success
+              ? '${result.message} Pull: ${result.pulledCount}, push: ${result.pushedCount}, suppressions: ${result.deletedCount}.'
+              : '${result.message} ${result.error ?? ''}'.trim(),
+        ),
+      ),
+    );
+  }
+
+  void _handleSyncNotification(SyncNotification notification) {
+    if (!mounted) {
+      return;
+    }
+
+    final isManualEvent = _pendingManualSyncEvents > 0;
+    if (isManualEvent) {
+      _pendingManualSyncEvents--;
+    }
+
+    if (!notification.hasDataChanges) {
+      return;
+    }
+
+    setState(() {
+      _dataVersion++;
+      _screenVersions[_selected] = _dataVersion;
+    });
+
+    if (isManualEvent) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text(
+          'De nouvelles données ont été synchronisées. L\'écran courant a été actualisé.',
+        ),
+      ),
+    );
+  }
+
+  void _selectOption(_NavOption option) {
+    setState(() {
+      _selected = option;
+      _screenVersions[option] = _dataVersion;
+    });
+  }
+
+  Key _screenKey(_NavOption option) {
+    final version = _screenVersions[option] ?? 0;
+    return ValueKey('${option.name}-$version');
+  }
+
+  Widget _buildScreen(_NavOption option) {
+    final child = switch (option) {
+      _NavOption.tableauDeBord => const TableauDeBordScreen(),
+      _NavOption.depotArgent => DepotArgentScreen(user: widget.user),
+      _NavOption.depenses => DepensesScreen(user: widget.user),
+      _NavOption.utilisateurs => const UtilisateursScreen(),
+      _NavOption.clients => const ClientsScreen(),
+      _NavOption.camions => const CamionsScreen(),
+      _NavOption.chauffeursConvoyeurs => const ChauffeursConvoyeursScreen(),
+      _NavOption.voyages => const VoyagesScreen(),
+      _NavOption.dossiers => const DossiersScreen(),
+    };
+
+    return KeyedSubtree(
+      key: _screenKey(option),
+      child: child,
+    );
+  }
+
+  String _syncStatusLabel() {
+    if (_syncInProgress) {
+      return 'Synchronisation en cours...';
+    }
+    if (_lastSyncCompletedAt != null) {
+      final completedAt = _lastSyncCompletedAt!.toLocal();
+      final day = completedAt.day.toString().padLeft(2, '0');
+      final month = completedAt.month.toString().padLeft(2, '0');
+      final hour = completedAt.hour.toString().padLeft(2, '0');
+      final minute = completedAt.minute.toString().padLeft(2, '0');
+      return 'Dernière synchro: $day/$month à $hour:$minute';
+    }
+    if (_lastSyncError != null && _lastSyncError!.isNotEmpty) {
+      return 'Dernière synchronisation en échec';
+    }
+    return 'Exécution automatique toutes les 20 minutes';
   }
 
   void _showDefaultPasswordAlert() {
@@ -231,6 +393,7 @@ class _MainScreenState extends State<MainScreen> {
 
   // ── Logout ─────────────────────────────────────────────────────────────────
   void _logout() {
+    _syncTimer?.cancel();
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -328,28 +491,55 @@ class _MainScreenState extends State<MainScreen> {
                                     : FontWeight.normal,
                               ),
                             ),
-                            onTap: () =>
-                                setState(() => _selected = item.option),
+                            onTap: () => _selectOption(item.option),
                           ),
                         );
                       }).toList(),
                     ),
                   ),
 
-                  // Logout
+                  // Logout / Sync
                   Container(
                     decoration: const BoxDecoration(
                       border: Border(
                           top: BorderSide(color: Colors.white24)),
                     ),
-                    child: ListTile(
-                      leading: const Icon(Icons.logout,
-                          color: Colors.white70),
-                      title: const Text(
-                        'Déconnexion',
-                        style: TextStyle(color: Colors.white70),
-                      ),
-                      onTap: _logout,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.logout,
+                              color: Colors.white70),
+                          title: const Text(
+                            'Déconnexion',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                          onTap: _logout,
+                        ),
+                        const Divider(height: 1, color: Colors.white24),
+                        ListTile(
+                          leading: Icon(
+                            _syncInProgress ? Icons.sync : Icons.sync_outlined,
+                            color: Colors.white70,
+                          ),
+                          title: Text(
+                            _syncInProgress
+                                ? 'Synchronisation en cours...'
+                                : 'Synchroniser maintenant',
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                          subtitle: Text(
+                            _syncStatusLabel(),
+                            style: const TextStyle(color: Colors.white54),
+                          ),
+                          enabled: !_syncInProgress,
+                          onTap: _syncInProgress
+                              ? null
+                              : () => unawaited(
+                                    _runSynchronization(showFeedback: true),
+                                  ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -362,27 +552,7 @@ class _MainScreenState extends State<MainScreen> {
             flex: 73,
             child: IndexedStack(
               index: _NavOption.values.indexOf(_selected),
-              children: _NavOption.values.map((option) {
-                return switch (option) {
-                  _NavOption.depotArgent => DepotArgentScreen(user: widget.user),
-                  _NavOption.depenses => DepensesScreen(user: widget.user),
-                  _NavOption.utilisateurs => const UtilisateursScreen(),
-                  _NavOption.clients => const ClientsScreen(),
-                  _NavOption.camions => const CamionsScreen(),
-                  _NavOption.chauffeursConvoyeurs => const ChauffeursConvoyeursScreen(),
-                  _NavOption.voyages => const VoyagesScreen(),
-                  _NavOption.dossiers => const DossiersScreen(),
-                  _ => Center(
-                      child: Text(
-                        _navItems.firstWhere((e) => e.option == option).label,
-                        style: const TextStyle(
-                            fontSize: 24,
-                            color: Colors.black38,
-                            fontWeight: FontWeight.w300),
-                      ),
-                    ),
-                };
-              }).toList(),
+              children: _NavOption.values.map(_buildScreen).toList(),
             ),
           ),
         ],
