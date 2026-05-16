@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'dart:ui';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
@@ -190,6 +192,40 @@ class _LoginScreenState extends State<LoginScreen> {
                                     style:
                                         TextStyle(fontWeight: FontWeight.bold),
                                   ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        const Divider(height: 1),
+                        const SizedBox(height: 12),
+                        RichText(
+                          textAlign: TextAlign.center,
+                          text: TextSpan(
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.black54,
+                            ),
+                            children: [
+                              const TextSpan(text: 'by '),
+                              TextSpan(
+                                text: 'MENJI GROUP Sarl',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF1A237E),
+                                  decoration: TextDecoration.underline,
+                                ),
+                                recognizer: TapGestureRecognizer()
+                                  ..onTap = () {
+                                    final uri = Uri.parse('https://www.menji-group.com');
+                                    if (Platform.isWindows) {
+                                      Process.run('explorer', [uri.toString()]);
+                                    } else if (Platform.isLinux) {
+                                      Process.run('xdg-open', [uri.toString()]);
+                                    } else if (Platform.isMacOS) {
+                                      Process.run('open', [uri.toString()]);
+                                    }
+                                  },
+                              ),
+                            ],
                           ),
                         ),
                       ],

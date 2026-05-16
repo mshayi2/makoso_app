@@ -9,6 +9,7 @@ import '../models/conteneur.dart';
 import '../models/detail_conteneur.dart';
 import '../models/dossier.dart';
 import '../models/interchange.dart';
+import '../models/utilisateur.dart';
 
 const List<String> _kStatuts = [
   'En attente',
@@ -31,7 +32,8 @@ const List<String> _kDimensionsConteneur = [
 ];
 
 class DossiersScreen extends StatefulWidget {
-  const DossiersScreen({super.key});
+  final Utilisateur user;
+  const DossiersScreen({super.key, required this.user});
 
   @override
   State<DossiersScreen> createState() => _DossiersScreenState();
@@ -63,6 +65,8 @@ class _DossiersScreenState extends State<DossiersScreen> {
   List<Dossier> _dossiers = [];
   List<Client> _clients = [];
   Map<String, int> _conteneurCounts = {};
+
+  bool get _isOpLogistique => widget.user.role == 'opérateur logistique';
 
   @override
   void initState() {
@@ -1127,7 +1131,10 @@ class _DossiersScreenState extends State<DossiersScreen> {
                       ),
                       items: [
                         const DropdownMenuItem(value: null, child: Text('— Aucun —')),
-                        ..._kStatuts.map((s) => DropdownMenuItem(value: s, child: Text(s))),
+                        ..._kStatuts
+                            .where((s) => !_isOpLogistique ||
+                                (s != 'Clôturé' && s != 'Annulé'))
+                            .map((s) => DropdownMenuItem(value: s, child: Text(s))),
                       ],
                       onChanged: (v) => setState(() => _selectedStatut = v),
                     ),
@@ -1173,42 +1180,48 @@ class _DossiersScreenState extends State<DossiersScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              // Ligne 3 : Arrivée PN | Arrivée Matadi | Montant convenu
+              // Ligne 3 : Arrée PN | Arrée Matadi | Montant convenu
               Row(
                 children: [
                   Expanded(child: _dateField('Arrivée PN', _dateArriveePnCtrl)),
                   const SizedBox(width: 12),
                   Expanded(child: _dateField('Arrivée Matadi', _dateArriveeMatadictrl)),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _montantCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Montant convenu',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.attach_money),
+                  if (!_isOpLogistique) ...
+                  [
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _montantCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Montant convenu',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.attach_money),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return null;
+                          if (double.tryParse(v.trim().replaceAll(',', '.')) == null) return 'Nombre invalide';
+                          return null;
+                        },
                       ),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) return null;
-                        if (double.tryParse(v.trim().replaceAll(',', '.')) == null) return 'Nombre invalide';
-                        return null;
-                      },
                     ),
-                  ),
+                  ],
                 ],
               ),
-              const SizedBox(height: 12),
-              // Ligne 4 : Paiement 30% Draft | Paiement 30% PN | Paiement 40% Matadi
-              Row(
-                children: [
-                  Expanded(child: _dateField('Paiement 30% Draft', _datePaiement30DraftCtrl)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _dateField('Paiement 30% PN', _datePaiement30PnCtrl)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _dateField('Paiement 40% Matadi', _datePaiement40MatadictrlCtrl)),
-                ],
-              ),
+              if (!_isOpLogistique) ...
+              [
+                const SizedBox(height: 12),
+                // Ligne 4 : Paiement 30% Draft | Paiement 30% PN | Paiement 40% Matadi
+                Row(
+                  children: [
+                    Expanded(child: _dateField('Paiement 30% Draft', _datePaiement30DraftCtrl)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _dateField('Paiement 30% PN', _datePaiement30PnCtrl)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _dateField('Paiement 40% Matadi', _datePaiement40MatadictrlCtrl)),
+                  ],
+                ),
+              ],
               const SizedBox(height: 20),
               Row(
                 children: [
@@ -1334,21 +1347,24 @@ class _DossiersScreenState extends State<DossiersScreen> {
                           const Color(0xFF1A237E).withValues(alpha: 0.08),
                         ),
                         columnSpacing: 20,
-                        columns: const [
-                          DataColumn(label: Text('N° BL')),
-                          DataColumn(label: Text('Client')),
-                          DataColumn(label: Text('Port charg.')),
-                          DataColumn(label: Text('Port dest.')),
-                          DataColumn(label: Text('Nbre conteneur')),
-                          DataColumn(label: Text('Statut')),
-                          DataColumn(label: Text('Marchandise')),
-                          DataColumn(label: Text('Arr. PN')),
-                          DataColumn(label: Text('Arr. Matadi')),
-                          DataColumn(label: Text('Paiem. 30% Draft')),
-                          DataColumn(label: Text('Paiem. 30% PN')),
-                          DataColumn(label: Text('Paiem. 40% Matadi')),
-                          DataColumn(label: Text('Montant')),
-                          DataColumn(label: Text('Actions')),
+                        columns: [
+                          const DataColumn(label: Text('N° BL')),
+                          const DataColumn(label: Text('Client')),
+                          const DataColumn(label: Text('Port charg.')),
+                          const DataColumn(label: Text('Port dest.')),
+                          const DataColumn(label: Text('Nbre conteneur')),
+                          const DataColumn(label: Text('Statut')),
+                          const DataColumn(label: Text('Marchandise')),
+                          const DataColumn(label: Text('Arr. PN')),
+                          const DataColumn(label: Text('Arr. Matadi')),
+                          if (!_isOpLogistique) ...
+                          [
+                            const DataColumn(label: Text('Paiem. 30% Draft')),
+                            const DataColumn(label: Text('Paiem. 30% PN')),
+                            const DataColumn(label: Text('Paiem. 40% Matadi')),
+                            const DataColumn(label: Text('Montant')),
+                          ],
+                          const DataColumn(label: Text('Actions')),
                         ],
                         rows: _filteredDossiers.map((d) {
                           final isEditing = _editingDossier?.uuid == d.uuid;
@@ -1385,14 +1401,17 @@ class _DossiersScreenState extends State<DossiersScreen> {
                               DataCell(Text(d.natureMarchandise ?? '-')),
                               DataCell(Text(_formatDate(d.dateArriveePn))),
                               DataCell(Text(_formatDate(d.dateArriveeMatadi))),
-                              DataCell(Text(_formatDate(d.datePaiement30Draft))),
-                              DataCell(Text(_formatDate(d.datePaiement30Pn))),
-                              DataCell(Text(_formatDate(d.datePaiement40Matadi))),
-                              DataCell(Text(
-                                d.montantConvenu != null
-                                    ? d.montantConvenu!.toStringAsFixed(2)
-                                    : '-',
-                              )),
+                              if (!_isOpLogistique) ...
+                              [
+                                DataCell(Text(_formatDate(d.datePaiement30Draft))),
+                                DataCell(Text(_formatDate(d.datePaiement30Pn))),
+                                DataCell(Text(_formatDate(d.datePaiement40Matadi))),
+                                DataCell(Text(
+                                  d.montantConvenu != null
+                                      ? d.montantConvenu!.toStringAsFixed(2)
+                                      : '-',
+                                )),
+                              ],
                               DataCell(
                                 Row(
                                   mainAxisSize: MainAxisSize.min,

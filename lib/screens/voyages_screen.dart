@@ -4,6 +4,7 @@ import '../database/app_database.dart';
 import '../models/camion.dart';
 import '../models/chauffeur_convoyeur.dart';
 import '../models/monnaie.dart';
+import '../models/utilisateur.dart';
 import '../models/voyage.dart';
 
 const List<String> _kStatuts = [
@@ -14,7 +15,8 @@ const List<String> _kStatuts = [
 ];
 
 class VoyagesScreen extends StatefulWidget {
-  const VoyagesScreen({super.key});
+  final Utilisateur user;
+  const VoyagesScreen({super.key, required this.user});
 
   @override
   State<VoyagesScreen> createState() => _VoyagesScreenState();
@@ -61,6 +63,8 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
     _searchCtrl.dispose();
     super.dispose();
   }
+
+  bool get _isOpLogistique => widget.user.role == 'opérateur logistique';
 
   Future<void> _loadAll() async {
     setState(() => _isLoading = true);
@@ -377,37 +381,40 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                         onChanged: (v) => setState(() => _selectedConvoyeurUuid = v),
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _montantCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Montant convenu',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.attach_money),
+                      if (!_isOpLogistique) ...
+                      [
+                        TextFormField(
+                          controller: _montantCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Montant convenu',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.attach_money),
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) return null;
+                            if (double.tryParse(v.trim().replaceAll(',', '.')) == null) {
+                              return 'Nombre invalide';
+                            }
+                            return null;
+                          },
                         ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) return null;
-                          if (double.tryParse(v.trim().replaceAll(',', '.')) == null) {
-                            return 'Nombre invalide';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: _selectedMonnaieUuid,
-                        decoration: const InputDecoration(
-                          labelText: 'Monnaie',
-                          border: OutlineInputBorder(),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          value: _selectedMonnaieUuid,
+                          decoration: const InputDecoration(
+                            labelText: 'Monnaie',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: [
+                            const DropdownMenuItem(value: null, child: Text('—')),
+                            ..._monnaies.map((m) =>
+                                DropdownMenuItem(value: m.uuid, child: Text(m.label))),
+                          ],
+                          onChanged: (v) => setState(() => _selectedMonnaieUuid = v),
                         ),
-                        items: [
-                          const DropdownMenuItem(value: null, child: Text('—')),
-                          ..._monnaies.map((m) =>
-                              DropdownMenuItem(value: m.uuid, child: Text(m.label))),
-                        ],
-                        onChanged: (v) => setState(() => _selectedMonnaieUuid = v),
-                      ),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 12),
+                      ],
                       DropdownButtonFormField<String>(
                         value: _selectedStatut,
                         decoration: const InputDecoration(
@@ -517,17 +524,18 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                     child: DataTable(
                       headingRowColor: WidgetStateProperty.all(const Color(0xFF1A237E).withValues(alpha: 0.08)),
                       columnSpacing: 20,
-                      columns: const [
-                        DataColumn(label: Text('N° Voyage')),
-                        DataColumn(label: Text('Date')),
-                        DataColumn(label: Text('Départ')),
-                        DataColumn(label: Text('Destination')),
-                        DataColumn(label: Text('Camion')),
-                        DataColumn(label: Text('Chauffeur')),
-                        DataColumn(label: Text('Convoyeur')),
-                        DataColumn(label: Text('Montant')),
-                        DataColumn(label: Text('Statut')),
-                        DataColumn(label: Text('Actions')),
+                      columns: [
+                        const DataColumn(label: Text('N° Voyage')),
+                        const DataColumn(label: Text('Date')),
+                        const DataColumn(label: Text('Départ')),
+                        const DataColumn(label: Text('Destination')),
+                        const DataColumn(label: Text('Camion')),
+                        const DataColumn(label: Text('Chauffeur')),
+                        const DataColumn(label: Text('Convoyeur')),
+                        if (!_isOpLogistique)
+                          const DataColumn(label: Text('Montant')),
+                        const DataColumn(label: Text('Statut')),
+                        const DataColumn(label: Text('Actions')),
                       ],
                       rows: _filteredVoyages.map((v) {
                         final isEditing = _editingVoyage?.uuid == v.uuid;
@@ -543,11 +551,12 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                             DataCell(Text(_camionLabel(v.camionUuid))),
                             DataCell(Text(_personLabel(v.chauffeurUuid))),
                             DataCell(Text(_personLabel(v.convoyeurUuid))),
-                            DataCell(Text(
-                              v.montantConvenu != null
-                                  ? '${v.montantConvenu!.toStringAsFixed(2)} ${_monnaieLabel(v.monnaieUuid)}'
-                                  : '-',
-                            )),
+                            if (!_isOpLogistique)
+                              DataCell(Text(
+                                v.montantConvenu != null
+                                    ? '${v.montantConvenu!.toStringAsFixed(2)} ${_monnaieLabel(v.monnaieUuid)}'
+                                    : '-',
+                              )),
                             DataCell(
                               v.statut != null
                                   ? Container(

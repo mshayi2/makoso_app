@@ -77,7 +77,9 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
     _selected = widget.user.role == 'caissier'
         ? _NavOption.depotArgent
-        : _NavOption.tableauDeBord;
+        : widget.user.role == 'opérateur logistique'
+            ? _NavOption.dossiers
+            : _NavOption.tableauDeBord;
     _screenVersions = {
       for (final option in _NavOption.values) option: 0,
     };
@@ -207,8 +209,8 @@ class _MainScreenState extends State<MainScreen> {
       _NavOption.clients => const ClientsScreen(),
       _NavOption.camions => const CamionsScreen(),
       _NavOption.chauffeursConvoyeurs => const ChauffeursConvoyeursScreen(),
-      _NavOption.voyages => const VoyagesScreen(),
-      _NavOption.dossiers => const DossiersScreen(),
+      _NavOption.voyages => VoyagesScreen(user: widget.user),
+      _NavOption.dossiers => DossiersScreen(user: widget.user),
     };
 
     return KeyedSubtree(
@@ -246,10 +248,20 @@ class _MainScreenState extends State<MainScreen> {
             Text('Mot de passe par défaut'),
           ],
         ),
-        content: const Text(
-          'Vous utilisez le mot de passe par défaut (12345).\n\n'
-          'Pour votre sécurité, veuillez personnaliser votre mot de passe '
-          'en cliquant sur l\'icône 🔑 dans le panneau de gauche.',
+        content: RichText(
+          text: const TextSpan(
+            style: TextStyle(fontSize: 14, color: Colors.black87, height: 1.5),
+            children: [
+              TextSpan(text: 'Vous utilisez le mot de passe par défaut (12345).\n\n'),
+              TextSpan(text: 'Pour votre sécurité, veuillez personnaliser votre mot de passe '
+                  'en cliquant sur l\'icône\u00a0'),
+              WidgetSpan(
+                alignment: PlaceholderAlignment.middle,
+                child: Icon(Icons.key, size: 18, color: Color(0xFF1A237E)),
+              ),
+              TextSpan(text: '\u00a0dans le panneau de gauche.'),
+            ],
+          ),
         ),
         actions: [
           ElevatedButton(
@@ -444,7 +456,7 @@ class _MainScreenState extends State<MainScreen> {
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.lock_reset,
+                          icon: const Icon(Icons.key,
                               color: Colors.white70),
                           tooltip: 'Modifier le mot de passe',
                           onPressed: _showChangePasswordDialog,
@@ -462,8 +474,13 @@ class _MainScreenState extends State<MainScreen> {
                         if (role == 'caissier') {
                           return item.option == _NavOption.depotArgent ||
                               item.option == _NavOption.depenses;
-                        }
-                        if (item.option == _NavOption.utilisateurs) {
+                        }                        if (role == 'opérateur logistique') {
+                          return item.option == _NavOption.dossiers ||
+                              item.option == _NavOption.voyages ||
+                              item.option == _NavOption.clients ||
+                              item.option == _NavOption.chauffeursConvoyeurs ||
+                              item.option == _NavOption.camions;
+                        }                        if (item.option == _NavOption.utilisateurs) {
                           return role == 'admin';
                         }
                         return true;
@@ -508,16 +525,6 @@ class _MainScreenState extends State<MainScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         ListTile(
-                          leading: const Icon(Icons.logout,
-                              color: Colors.white70),
-                          title: const Text(
-                            'Déconnexion',
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                          onTap: _logout,
-                        ),
-                        const Divider(height: 1, color: Colors.white24),
-                        ListTile(
                           leading: Icon(
                             _syncInProgress ? Icons.sync : Icons.sync_outlined,
                             color: Colors.white70,
@@ -539,6 +546,18 @@ class _MainScreenState extends State<MainScreen> {
                                     _runSynchronization(showFeedback: true),
                                   ),
                         ),
+                        const Divider(height: 1, color: Colors.white24),
+                        const SizedBox(height: 4),
+                        ListTile(
+                          leading: const Icon(Icons.logout,
+                              color: Colors.white70),
+                          title: const Text(
+                            'Déconnexion',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                          onTap: _logout,
+                        ),
+                        const SizedBox(height: 4),
                       ],
                     ),
                   ),

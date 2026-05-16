@@ -351,6 +351,28 @@ class _DepensesScreenState extends State<DepensesScreen> {
 
     setState(() => _isSaving = true);
     final isEditing = _editingDepense != null;
+
+    // Collaborateur restriction: can only manually validate 1000 or 10000 USD
+    if (widget.user.role == 'collaborateur' &&
+        validationDecision.valide > 0 &&
+        _selectedValidationStatus == 'Validée') {
+      final monnaie = _selectedMonnaie();
+      if (monnaie == null ||
+          !_isUsdCurrency(monnaie) ||
+          (montant != 1000 && montant != 10000)) {
+        setState(() => _isSaving = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'En tant que collaborateur, vous ne pouvez valider que les dépenses de 1000 USD ou 10 000 USD.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+    }
     try {
       if (isEditing) {
         await AppDatabase.instance.updateDepense(
@@ -561,14 +583,16 @@ class _DepensesScreenState extends State<DepensesScreen> {
                 items: _kDepenseFormStatuses
                     .map((status) => DropdownMenuItem(value: status, child: Text(status)))
                     .toList(),
-                onChanged: (value) {
-                  if (value == null) {
-                    return;
-                  }
-                  setState(() {
-                    _selectedValidationStatus = value;
-                  });
-                },
+                onChanged: widget.user.role == 'caissier'
+                    ? null
+                    : (value) {
+                        if (value == null) {
+                          return;
+                        }
+                        setState(() {
+                          _selectedValidationStatus = value;
+                        });
+                      },
               ),
             ),
             _buildReadOnlyField(
