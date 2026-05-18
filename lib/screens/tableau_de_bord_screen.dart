@@ -1,7 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../database/app_database.dart';
+import '../services/sync_service.dart';
+import 'depenses_detail_screen.dart';
+import 'depenses_en_attente_screen.dart';
+import 'depot_argent_detail_screen.dart';
+import 'voyages_list_screen.dart';
 
 class TableauDeBordScreen extends StatefulWidget {
   const TableauDeBordScreen({super.key});
@@ -25,10 +32,47 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
   // Dossiers en retard
   List<Map<String, Object?>> _dossiersEnRetard = [];
 
+  // Sync
+  bool _syncInProgress = false;
+  StreamSubscription<SyncNotification>? _syncSub;
+
   @override
   void initState() {
     super.initState();
+    _syncInProgress = AppSyncService.instance.isRunning;
+    _syncSub = AppSyncService.instance.notifications.listen((n) {
+      if (!mounted) return;
+      setState(() {
+        _syncInProgress = AppSyncService.instance.isRunning;
+      });
+      if (n.hasDataChanges) _load();
+    });
     _load();
+  }
+
+  @override
+  void dispose() {
+    _syncSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _runSync() async {
+    if (_syncInProgress) return;
+    setState(() => _syncInProgress = true);
+    final result = await AppSyncService.instance.synchronize();
+    if (!mounted) return;
+    setState(() => _syncInProgress = AppSyncService.instance.isRunning);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result.success
+              ? '${result.message} Pull : ${result.pulledCount}, push : ${result.pushedCount}.'
+              : '${result.message} ${result.error ?? ''}'.trim(),
+        ),
+      ),
+    );
+    if (result.success) _load();
   }
 
   Future<void> _load() async {
@@ -65,7 +109,11 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _DashboardHeader(onRefresh: _load),
+          _DashboardHeader(
+            onRefresh: _load,
+            onSync: _runSync,
+            syncInProgress: _syncInProgress,
+          ),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
@@ -83,7 +131,17 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
                         ),
                         const SizedBox(height: 12),
                         if (_pendingDepenses > 0) ...[
-                          _PendingDepenseBanner(count: _pendingDepenses),
+                          GestureDetector(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const DepensesEnAttenteScreen(),
+                              ),
+                            ).then((_) => _load()),
+                            child: _PendingDepenseBanner(
+                                count: _pendingDepenses),
+                          ),
                           const SizedBox(height: 10),
                         ],
                         if (_financialRows.isEmpty)
@@ -92,7 +150,47 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
                             message: 'Aucune donnée financière disponible.',
                           )
                         else
-                          _FinancialTable(rows: _financialRows),
+                          _FinancialTable(
+                            rows: _financialRows,
+                            onDepotTap: (row) {
+                              final uuid =
+                                  row['monnaie_uuid'] as String? ?? '';
+                              final sigle =
+                                  (row['sigle'] as String?)?.trim() ?? '';
+                              final nom =
+                                  (row['nom'] as String?)?.trim() ?? '';
+                              final label =
+                                  sigle.isNotEmpty ? sigle : nom;
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => DepotArgentDetailScreen(
+                                    monnaieUuid: uuid,
+                                    monnaieLabel: label,
+                                  ),
+                                ),
+                              );
+                            },
+                            onDepenseTap: (row) {
+                              final uuid =
+                                  row['monnaie_uuid'] as String? ?? '';
+                              final sigle =
+                                  (row['sigle'] as String?)?.trim() ?? '';
+                              final nom =
+                                  (row['nom'] as String?)?.trim() ?? '';
+                              final label =
+                                  sigle.isNotEmpty ? sigle : nom;
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => DepensesDetailScreen(
+                                    monnaieUuid: uuid,
+                                    monnaieLabel: label,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
 
                         const SizedBox(height: 28),
 
@@ -108,6 +206,12 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
                           total: _voyageTotal,
                           enCours: _voyageEnCours,
                           enAttente: _voyageEnAttente,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const VoyagesListScreen(),
+                            ),
+                          ),
                         ),
 
                         const SizedBox(height: 28),
@@ -145,7 +249,14 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
 
 class _DashboardHeader extends StatelessWidget {
   final VoidCallback onRefresh;
-  const _DashboardHeader({required this.onRefresh});
+  final VoidCallback onSync;
+  final bool syncInProgress;
+
+  const _DashboardHeader({
+    required this.onRefresh,
+    required this.onSync,
+    required this.syncInProgress,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -172,6 +283,26 @@ class _DashboardHeader extends StatelessWidget {
                 letterSpacing: 0.2,
               ),
             ),
+          ),
+          // Sync button
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: syncInProgress
+                ? const Padding(
+                    padding: EdgeInsets.all(10),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Colors.white70),
+                    ),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.sync_rounded,
+                        color: Colors.white70),
+                    tooltip: 'Synchroniser',
+                    onPressed: onSync,
+                  ),
           ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.white70),
@@ -330,197 +461,233 @@ class _PendingDepenseBanner extends StatelessWidget {
               ),
             ),
           ),
+          const Icon(Icons.chevron_right_rounded,
+              color: Color(0xFFD97706), size: 20),
         ],
       ),
     );
   }
 }
 
-// ─── Financial table ─────────────────────────────────────────────────────────
+// ─── Financial cards ─────────────────────────────────────────────────────────
 
 class _FinancialTable extends StatelessWidget {
   final List<Map<String, Object?>> rows;
-  const _FinancialTable({required this.rows});
+  final void Function(Map<String, Object?> row)? onDepotTap;
+  final void Function(Map<String, Object?> row)? onDepenseTap;
 
-  @override
-  Widget build(BuildContext context) {
-    final fmt = NumberFormat('#,##0.00', 'fr_FR');
-    final cs = Theme.of(context).colorScheme;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: cs.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cs.outlineVariant),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(10),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          // Header
-          Container(
-            decoration: BoxDecoration(
-              color: cs.surfaceContainerLow,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(16)),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: Text('MONNAIE',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
-                        color: cs.onSurfaceVariant,
-                      )),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: Text('DÉPÔTS',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
-                        color: cs.onSurfaceVariant,
-                      )),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: Text('DÉPENSES',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
-                        color: cs.onSurfaceVariant,
-                      )),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: Text('SOLDE',
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
-                        color: cs.onSurfaceVariant,
-                      )),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          for (int i = 0; i < rows.length; i++) ...[
-            _FinancialDataRow(row: rows[i], fmt: fmt, isEven: i.isEven),
-            if (i < rows.length - 1) const Divider(height: 1, indent: 20),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _FinancialDataRow extends StatelessWidget {
-  final Map<String, Object?> row;
-  final NumberFormat fmt;
-  final bool isEven;
-
-  const _FinancialDataRow({
-    required this.row,
-    required this.fmt,
-    required this.isEven,
+  const _FinancialTable({
+    required this.rows,
+    this.onDepotTap,
+    this.onDepenseTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final sigle = (row['sigle'] as String?) ?? (row['nom'] as String?) ?? '?';
+    final fmt = NumberFormat('#,##0.00', 'fr_FR');
+    return Column(
+      children: [
+        for (int i = 0; i < rows.length; i++) ...[
+          _FinancialCurrencyCard(
+            row: rows[i],
+            fmt: fmt,
+            onDepotTap:
+                onDepotTap == null ? null : () => onDepotTap!(rows[i]),
+            onDepenseTap:
+                onDepenseTap == null ? null : () => onDepenseTap!(rows[i]),
+          ),
+          if (i < rows.length - 1) const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+}
+
+class _FinancialCurrencyCard extends StatelessWidget {
+  final Map<String, Object?> row;
+  final NumberFormat fmt;
+  final VoidCallback? onDepotTap;
+  final VoidCallback? onDepenseTap;
+
+  const _FinancialCurrencyCard({
+    required this.row,
+    required this.fmt,
+    this.onDepotTap,
+    this.onDepenseTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sigle =
+        (row['sigle'] as String?) ?? (row['nom'] as String?) ?? '?';
+    final nom = (row['nom'] as String?) ?? sigle;
     final depot = (row['total_depot'] as num?)?.toDouble() ?? 0.0;
     final depense = (row['total_depense'] as num?)?.toDouble() ?? 0.0;
     final solde = depot - depense;
+    final soldePositif = solde >= 0;
     final soldeColor =
-        solde >= 0 ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
+        soldePositif ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
 
     return Container(
-      color: isEven
-          ? Colors.transparent
-          : Theme.of(context).colorScheme.surfaceContainerLowest,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1E3A5F), Color(0xFF2D6A9F)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E3A5F).withAlpha(80),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Currency header
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(40),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Center(
+                  child: Text(
+                    sigle.substring(0, sigle.length.clamp(0, 3)),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  nom,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(height: 1, color: Colors.white.withAlpha(40)),
+          const SizedBox(height: 12),
+          // Dépôts row
+          _FinancialLine(
+            label: 'Dépôts',
+            amount: fmt.format(depot),
+            icon: Icons.arrow_downward_rounded,
+            color: const Color(0xFF93C5FD),
+            onTap: onDepotTap,
+          ),
+          const SizedBox(height: 8),
+          // Dépenses row
+          _FinancialLine(
+            label: 'Dépenses',
+            amount: fmt.format(depense),
+            icon: Icons.arrow_upward_rounded,
+            color: const Color(0xFFFCA5A5),
+            onTap: onDepenseTap,
+          ),
+          const SizedBox(height: 12),
+          Container(height: 1, color: Colors.white.withAlpha(40)),
+          const SizedBox(height: 10),
+          // Solde
+          Row(
+            children: [
+              Icon(
+                soldePositif
+                    ? Icons.trending_up_rounded
+                    : Icons.trending_down_rounded,
+                color: soldePositif
+                    ? const Color(0xFF4ADE80)
+                    : const Color(0xFFF87171),
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Solde',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                fmt.format(solde),
+                style: TextStyle(
+                  color: soldePositif
+                      ? const Color(0xFF4ADE80)
+                      : const Color(0xFFF87171),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FinancialLine extends StatelessWidget {
+  final String label;
+  final String amount;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const _FinancialLine({
+    required this.label,
+    required this.amount,
+    required this.icon,
+    required this.color,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
       child: Row(
         children: [
-          Expanded(
-            flex: 2,
-            child: Row(
-              children: [
-                Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF3B82F6), Color(0xFF2563EB)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Center(
-                    child: Text(
-                      sigle.substring(0, sigle.length.clamp(0, 2)),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(sigle,
-                    style: const TextStyle(fontWeight: FontWeight.w700)),
-              ],
+          Icon(icon, color: color, size: 15),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withAlpha(200),
+              fontSize: 13,
             ),
           ),
-          Expanded(
-            flex: 3,
-            child: Text(fmt.format(depot),
-                textAlign: TextAlign.right,
-                style: const TextStyle(color: Color(0xFF1D4ED8))),
-          ),
-          Expanded(
-            flex: 3,
-            child: Text(fmt.format(depense),
-                textAlign: TextAlign.right,
-                style: const TextStyle(color: Color(0xFF6B7280))),
-          ),
-          Expanded(
-            flex: 3,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Icon(
-                  solde >= 0
-                      ? Icons.trending_up_rounded
-                      : Icons.trending_down_rounded,
-                  size: 16,
-                  color: soldeColor,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  fmt.format(solde),
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, color: soldeColor),
-                ),
-              ],
+          const Spacer(),
+          Text(
+            amount,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
             ),
           ),
+          if (onTap != null) ...[
+            const SizedBox(width: 2),
+            Icon(Icons.chevron_right_rounded, color: color, size: 15),
+          ],
         ],
       ),
     );
@@ -533,11 +700,13 @@ class _VoyageStatsRow extends StatelessWidget {
   final int total;
   final int enCours;
   final int enAttente;
+  final VoidCallback? onTap;
 
   const _VoyageStatsRow({
     required this.total,
     required this.enCours,
     required this.enAttente,
+    this.onTap,
   });
 
   @override
@@ -550,6 +719,7 @@ class _VoyageStatsRow extends StatelessWidget {
             value: total,
             icon: Icons.summarize_rounded,
             gradient: const [Color(0xFF3B82F6), Color(0xFF1D4ED8)],
+            onTap: onTap,
           ),
         ),
         const SizedBox(width: 12),
@@ -559,6 +729,7 @@ class _VoyageStatsRow extends StatelessWidget {
             value: enCours,
             icon: Icons.play_circle_rounded,
             gradient: const [Color(0xFF10B981), Color(0xFF059669)],
+            onTap: onTap,
           ),
         ),
         const SizedBox(width: 12),
@@ -568,6 +739,7 @@ class _VoyageStatsRow extends StatelessWidget {
             value: enAttente,
             icon: Icons.pause_circle_rounded,
             gradient: const [Color(0xFFF59E0B), Color(0xFFD97706)],
+            onTap: onTap,
           ),
         ),
       ],
@@ -580,17 +752,21 @@ class _VoyageStatCard extends StatelessWidget {
   final int value;
   final IconData icon;
   final List<Color> gradient;
+  final VoidCallback? onTap;
 
   const _VoyageStatCard({
     required this.label,
     required this.value,
     required this.icon,
     required this.gradient,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -639,6 +815,7 @@ class _VoyageStatCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }

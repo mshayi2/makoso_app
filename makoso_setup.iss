@@ -36,7 +36,7 @@ SolidCompression=yes
 LZMAUseSeparateProcess=yes
 
 ; Icône du setup
-SetupIconFile={#BuildDir}\{#AppExeName},0
+SetupIconFile=windows\runner\resources\app_icon.ico
 
 ; Interface
 WizardStyle=modern
