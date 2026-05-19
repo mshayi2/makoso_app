@@ -12,6 +12,7 @@ class Voyage {
   final String? camionUuid;
   final String? chauffeurUuid;
   final String? convoyeurUuid;
+  final String? clientUuid;
 
   const Voyage({
     required this.uuid,
@@ -27,6 +28,7 @@ class Voyage {
     this.camionUuid,
     this.chauffeurUuid,
     this.convoyeurUuid,
+    this.clientUuid,
   });
 
   factory Voyage.fromMap(Map<String, dynamic> map) {
@@ -44,6 +46,7 @@ class Voyage {
       camionUuid: map['camion_uuid'] as String?,
       chauffeurUuid: map['chauffeur_uuid'] as String?,
       convoyeurUuid: map['convoyeur_uuid'] as String?,
+      clientUuid: map['client_uuid'] as String?,
     );
   }
 }

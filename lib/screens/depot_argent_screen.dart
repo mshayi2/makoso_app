@@ -4,20 +4,29 @@ import '../database/app_database.dart';
 import '../models/depot_argent.dart';
 import '../models/monnaie.dart';
 import '../models/utilisateur.dart';
+import 'main_screen.dart' show AppCompany;
 
 const int _kDepotPageSize = 250;
 
-const List<String> _kDepotLibelles = [
+const List<String> _kDepotLibellesMakoso = [
   'Paiement 30% draft',
   'Paiement 30% Pointe Noir',
   'Paiement 40% Matadi',
+];
+
+const List<String> _kDepotLibellesMarian = [
   'Voyage camion',
 ];
 
 class DepotArgentScreen extends StatefulWidget {
   final Utilisateur user;
+  final AppCompany company;
 
-  const DepotArgentScreen({super.key, required this.user});
+  const DepotArgentScreen({
+    super.key,
+    required this.user,
+    required this.company,
+  });
 
   @override
   State<DepotArgentScreen> createState() => _DepotArgentScreenState();
@@ -42,9 +51,17 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   String? _selectedMonnaieUuid;
   String? _selectedSourceUuid;
 
+  List<String> get _libelles => widget.company == AppCompany.marian
+      ? _kDepotLibellesMarian
+      : _kDepotLibellesMakoso;
+
   List<Monnaie> _monnaies = [];
   List<DepotSourceOption> _sources = [];
   List<DepotArgentRecord> _depots = [];
+
+  String get _depotTable => widget.company == AppCompany.marian
+      ? 'depot_argent_marina_trans'
+      : 'depot_argent_makoso';
 
   String get _sourceFieldLabel {
     if (_selectedLibelle == 'Voyage camion') return 'Voyage *';
@@ -55,6 +72,9 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.company == AppCompany.marian) {
+      _selectedLibelle = 'Voyage camion';
+    }
     _loadInitial();
   }
 
@@ -80,6 +100,9 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
       _isLoading = false;
     });
     await _loadGrid(resetPage: true);
+    if (widget.company == AppCompany.marian) {
+      await _loadSourcesForLibelle();
+    }
   }
 
   Future<void> _loadGrid({bool resetPage = false, int? page}) async {
@@ -87,6 +110,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
     setState(() => _isGridLoading = true);
     final search = _searchCtrl.text;
     final total = await AppDatabase.instance.getDepotArgentCount(
+      table: _depotTable,
       search: search,
     );
     final maxPage = total <= 0 ? 0 : (total - 1) ~/ _kDepotPageSize;
@@ -98,6 +122,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                 ? maxPage
                 : targetPage;
     final records = await AppDatabase.instance.getDepotArgentRecords(
+      table: _depotTable,
       search: search,
       limit: _kDepotPageSize,
       offset: safePage * _kDepotPageSize,
@@ -173,6 +198,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
     try {
       if (isEditing) {
         await AppDatabase.instance.updateDepotArgent(
+          table: _depotTable,
           uuid: _editingDepot!.uuid,
           monnaieUuid: _selectedMonnaieUuid!,
           montant: montant,
@@ -184,6 +210,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
         );
       } else {
         await AppDatabase.instance.createDepotArgent(
+          table: _depotTable,
           monnaieUuid: _selectedMonnaieUuid!,
           montant: montant,
           libelle: _selectedLibelle!,
@@ -236,7 +263,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
     _formKey.currentState?.reset();
     setState(() {
       _editingDepot = null;
-      _selectedLibelle = null;
+      _selectedLibelle = widget.company == AppCompany.marian ? 'Voyage camion' : null;
       _selectedMonnaieUuid = null;
       _selectedSourceUuid = null;
       _sources = [];
@@ -245,6 +272,9 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
       _datePaiementCtrl.clear();
       _observationCtrl.clear();
     });
+    if (widget.company == AppCompany.marian) {
+      _loadSourcesForLibelle();
+    }
   }
 
   Future<void> _confirmDelete(DepotArgentRecord depot) async {
@@ -266,7 +296,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
 
     if (confirmed != true) return;
     if (_editingDepot?.uuid == depot.uuid) _cancelEdit();
-    await AppDatabase.instance.deleteDepotArgent(depot.uuid);
+    await AppDatabase.instance.deleteDepotArgent(depot.uuid, table: _depotTable);
     await _loadGrid();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -293,7 +323,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.list_alt_outlined),
                 ),
-                items: _kDepotLibelles
+                items: _libelles
                     .map((libelle) => DropdownMenuItem(value: libelle, child: Text(libelle)))
                     .toList(),
                 validator: (value) => value == null ? 'Champ requis' : null,

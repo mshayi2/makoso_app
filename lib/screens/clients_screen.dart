@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
 import '../models/client.dart';
+import 'main_screen.dart' show AppCompany;
 
 class ClientsScreen extends StatefulWidget {
-  const ClientsScreen({super.key});
+  final AppCompany company;
+  const ClientsScreen({super.key, required this.company});
 
   @override
   State<ClientsScreen> createState() => _ClientsScreenState();
@@ -89,6 +91,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
           adresse: _adresseCtrl.text.trim().isEmpty ? null : _adresseCtrl.text.trim(),
           telephone: _telephoneCtrl.text.trim().isEmpty ? null : _telephoneCtrl.text.trim(),
           email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+          typeClient: widget.company == AppCompany.makoso ? 'makoso' : 'marina',
         );
       } else {
         await AppDatabase.instance.createClient(
@@ -96,6 +99,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
           adresse: _adresseCtrl.text.trim().isEmpty ? null : _adresseCtrl.text.trim(),
           telephone: _telephoneCtrl.text.trim().isEmpty ? null : _telephoneCtrl.text.trim(),
           email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+          typeClient: widget.company == AppCompany.makoso ? 'makoso' : 'marina',
         );
       }
       _cancelEdit();

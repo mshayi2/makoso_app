@@ -5,7 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
-import 'main_screen.dart';
+import 'company_selection_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -54,7 +54,7 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => MainScreen(
+            builder: (_) => CompanySelectionScreen(
               user: user,
               showDefaultPasswordWarning: isDefault,
             ),
@@ -110,8 +110,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.business,
-                            size: 64, color: Color(0xFF1A237E)),
+                        Image.asset(
+                          'assets/images/container-truck.png',
+                          height: 80,
+                          fit: BoxFit.contain,
+                        ),
                         const SizedBox(height: 8),
                         const Text(
                           'MAKOSO',

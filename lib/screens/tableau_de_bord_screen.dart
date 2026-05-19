@@ -2,9 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../database/app_database.dart';
+import 'main_screen.dart' show AppCompany;
 
 class TableauDeBordScreen extends StatefulWidget {
-  const TableauDeBordScreen({super.key});
+  final bool showVoyages;
+  final AppCompany company;
+  const TableauDeBordScreen({
+    super.key,
+    this.showVoyages = true,
+    this.company = AppCompany.makoso,
+  });
 
   @override
   State<TableauDeBordScreen> createState() => _TableauDeBordScreenState();
@@ -34,24 +41,32 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final db = AppDatabase.instance;
+    final isMarian = widget.company == AppCompany.marian;
+    final depotTable = isMarian ? 'depot_argent_marina_trans' : 'depot_argent_makoso';
+    final depenseTable = isMarian ? 'depenses_marina_trans' : 'depenses_makoso';
 
-    final results = await Future.wait([
-      db.getDashboardFinancialRows(),
-      db.getPendingDepenseCount(),
-      db.getDashboardVoyageStats(),
-      db.getDossiersEnRetard(),
-    ]);
+    final futures = <Future>[
+      db.getDashboardFinancialRows(depotTable: depotTable, depenseTable: depenseTable),
+      db.getPendingDepenseCount(table: depenseTable),
+      if (widget.showVoyages) db.getDashboardVoyageStats(),
+      if (!isMarian) db.getDossiersEnRetard(),
+    ];
+    final results = await Future.wait(futures);
 
     if (!mounted) return;
 
     setState(() {
       _financialRows = results[0] as List<Map<String, Object?>>;
       _pendingDepenses = results[1] as int;
-      final stats = results[2] as Map<String, int>;
-      _voyageTotal = stats['total'] ?? 0;
-      _voyageEnCours = stats['en_cours'] ?? 0;
-      _voyageEnAttente = stats['en_attente'] ?? 0;
-      _dossiersEnRetard = results[3] as List<Map<String, Object?>>;
+      if (widget.showVoyages) {
+        final stats = results[2] as Map<String, int>;
+        _voyageTotal = stats['total'] ?? 0;
+        _voyageEnCours = stats['en_cours'] ?? 0;
+        _voyageEnAttente = stats['en_attente'] ?? 0;
+        _dossiersEnRetard = isMarian ? [] : results[3] as List<Map<String, Object?>>;
+      } else {
+        _dossiersEnRetard = isMarian ? [] : results[2] as List<Map<String, Object?>>;
+      }
       _loading = false;
     });
   }
@@ -97,40 +112,43 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
                         const SizedBox(height: 28),
 
                         // ── Voyages ──────────────────────────────────────
-                        _SectionHeader(
-                          icon: Icons.local_shipping_rounded,
-                          label: 'Voyages',
-                          iconColor: const Color(0xFF10B981),
-                          badgeColor: const Color(0xFFECFDF5),
-                        ),
-                        const SizedBox(height: 12),
-                        _VoyageStatsRow(
-                          total: _voyageTotal,
-                          enCours: _voyageEnCours,
-                          enAttente: _voyageEnAttente,
-                        ),
-
-                        const SizedBox(height: 28),
+                        if (widget.showVoyages) ...[
+                          _SectionHeader(
+                            icon: Icons.local_shipping_rounded,
+                            label: 'Voyages',
+                            iconColor: const Color(0xFF10B981),
+                            badgeColor: const Color(0xFFECFDF5),
+                          ),
+                          const SizedBox(height: 12),
+                          _VoyageStatsRow(
+                            total: _voyageTotal,
+                            enCours: _voyageEnCours,
+                            enAttente: _voyageEnAttente,
+                          ),
+                          const SizedBox(height: 28),
+                        ],
 
                         // ── Dossiers en retard ───────────────────────────
-                        _SectionHeader(
-                          icon: Icons.warning_rounded,
-                          label: 'Dossiers avec retard de paiement',
-                          iconColor: const Color(0xFFEF4444),
-                          badgeColor: const Color(0xFFFEF2F2),
-                          badge: _dossiersEnRetard.isEmpty
-                              ? null
-                              : '${_dossiersEnRetard.length}',
-                        ),
-                        const SizedBox(height: 12),
-                        if (_dossiersEnRetard.isEmpty)
-                          _EmptyState(
-                            icon: Icons.check_circle_rounded,
-                            iconColor: const Color(0xFF10B981),
-                            message: 'Aucun dossier avec retard de paiement.',
-                          )
-                        else
-                          _DossiersRetardList(dossiers: _dossiersEnRetard),
+                        if (widget.company != AppCompany.marian) ...[
+                          _SectionHeader(
+                            icon: Icons.warning_rounded,
+                            label: 'Dossiers avec retard de paiement',
+                            iconColor: const Color(0xFFEF4444),
+                            badgeColor: const Color(0xFFFEF2F2),
+                            badge: _dossiersEnRetard.isEmpty
+                                ? null
+                                : '${_dossiersEnRetard.length}',
+                          ),
+                          const SizedBox(height: 12),
+                          if (_dossiersEnRetard.isEmpty)
+                            _EmptyState(
+                              icon: Icons.check_circle_rounded,
+                              iconColor: const Color(0xFF10B981),
+                              message: 'Aucun dossier avec retard de paiement.',
+                            )
+                          else
+                            _DossiersRetardList(dossiers: _dossiersEnRetard),
+                        ],
                       ],
                     ),
                   ),

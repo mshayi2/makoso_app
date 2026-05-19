@@ -35,8 +35,10 @@ class AppDatabase {
     'conteneurs',
     'detail_conteneurs',
     'interchange',
-    'depot_argent',
-    'depenses',
+    'depot_argent_makoso',
+    'depot_argent_marina_trans',
+    'depenses_makoso',
+    'depenses_marina_trans',
     'camions',
     'chauffeurs_convoyeurs',
     'voyages',
@@ -100,6 +102,19 @@ class AppDatabase {
   }
 
   Future<void> _ensureSchema(sqflite.DatabaseExecutor db) async {
+    // ── Migrations: rename legacy tables ──────────────────────────────────────
+    final legacyRows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('depot_argent', 'depenses')",
+    );
+    final legacyNames = legacyRows.map((r) => r['name'] as String).toSet();
+    if (legacyNames.contains('depot_argent')) {
+      await db.execute('ALTER TABLE depot_argent RENAME TO depot_argent_makoso');
+    }
+    if (legacyNames.contains('depenses')) {
+      await db.execute('ALTER TABLE depenses RENAME TO depenses_makoso');
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     await db.execute('''
       CREATE TABLE IF NOT EXISTS utilisateurs (
         uuid TEXT PRIMARY KEY,
@@ -133,9 +148,11 @@ class AppDatabase {
         nom TEXT,
         adresse TEXT,
         telephone TEXT,
-        email TEXT
+        email TEXT,
+        type_client TEXT
       )
     ''');
+    await _ensureColumn(db, 'clients', 'type_client', 'TEXT');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS dossiers (
@@ -165,11 +182,33 @@ class AppDatabase {
         sync INTEGER DEFAULT 0,
         dossier_uuid TEXT,
         numero_conteneur TEXT,
-        dimension TEXT
+        dimension TEXT,
+        date_sorti_port DATE,
+        nom_transporteur TEXT,
+        marque_camion TEXT,
+        numero_plaque TEXT,
+        nom_chauffeur TEXT,
+        numero_chauffeur TEXT,
+        lieu_dechargement TEXT,
+        date_arriver_lieu_dechargement DATE,
+        date_dechargement DATE,
+        date_depart_retour_port DATE,
+        date_retour_port DATE
       )
     ''');
 
     await _ensureColumn(db, 'conteneurs', 'dimension', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'date_sorti_port', 'DATE');
+    await _ensureColumn(db, 'conteneurs', 'nom_transporteur', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'marque_camion', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'numero_plaque', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'nom_chauffeur', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'numero_chauffeur', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'lieu_dechargement', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'date_arriver_lieu_dechargement', 'DATE');
+    await _ensureColumn(db, 'conteneurs', 'date_dechargement', 'DATE');
+    await _ensureColumn(db, 'conteneurs', 'date_depart_retour_port', 'DATE');
+    await _ensureColumn(db, 'conteneurs', 'date_retour_port', 'DATE');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS detail_conteneurs (
@@ -199,7 +238,7 @@ class AppDatabase {
     await _ensureColumn(db, 'interchange', 'nom_fichier', 'TEXT');
 
     await db.execute('''
-      CREATE TABLE IF NOT EXISTS depot_argent (
+      CREATE TABLE IF NOT EXISTS depot_argent_makoso (
         uuid TEXT PRIMARY KEY,
         id INTEGER,
         sync INTEGER DEFAULT 0,
@@ -214,7 +253,22 @@ class AppDatabase {
     ''');
 
     await db.execute('''
-      CREATE TABLE IF NOT EXISTS depenses (
+      CREATE TABLE IF NOT EXISTS depot_argent_marina_trans (
+        uuid TEXT PRIMARY KEY,
+        id INTEGER,
+        sync INTEGER DEFAULT 0,
+        monnaie_uuid TEXT,
+        montant REAL,
+        libelle TEXT,
+        observation TEXT,
+        date_paiement DATE,
+        source_uuid TEXT,
+        agent TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS depenses_makoso (
         uuid TEXT PRIMARY KEY,
         id INTEGER,
         sync INTEGER DEFAULT 0,
@@ -228,6 +282,27 @@ class AppDatabase {
         monnaie_uuid TEXT
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS depenses_marina_trans (
+        uuid TEXT PRIMARY KEY,
+        id INTEGER,
+        sync INTEGER DEFAULT 0,
+        montant REAL,
+        libelle TEXT,
+        observation TEXT,
+        date DATE,
+        valide INTEGER,
+        date_validation DATE,
+        validateur_uuid TEXT,
+        monnaie_uuid TEXT,
+        type_depense TEXT,
+        origine_uuid TEXT
+      )
+    ''');
+
+    await _ensureColumn(db, 'depenses_marina_trans', 'type_depense', 'TEXT');
+    await _ensureColumn(db, 'depenses_marina_trans', 'origine_uuid', 'TEXT');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS camions (
@@ -268,9 +343,11 @@ class AppDatabase {
         statut TEXT,
         camion_uuid TEXT,
         chauffeur_uuid TEXT,
-        convoyeur_uuid TEXT
+        convoyeur_uuid TEXT,
+        client_uuid TEXT
       )
     ''');
+    await _ensureColumn(db, 'voyages', 'client_uuid', 'TEXT');
 
     await _seedAdminUser(db);
   }
@@ -702,11 +779,22 @@ class AppDatabase {
     return rows.map(Client.fromMap).toList();
   }
 
+  Future<List<Client>> getClientsByType(String typeClient) async {
+    final rows = await smartQuery(
+      'clients',
+      where: 'type_client = ?',
+      whereArgs: [typeClient],
+      orderBy: 'nom ASC',
+    );
+    return rows.map(Client.fromMap).toList();
+  }
+
   Future<void> createClient({
     required String nom,
     String? adresse,
     String? telephone,
     String? email,
+    String? typeClient,
   }) async {
     await smartInsert('clients', {
       'uuid': const Uuid().v4(),
@@ -714,6 +802,7 @@ class AppDatabase {
       'adresse': adresse,
       'telephone': telephone,
       'email': email,
+      'type_client': typeClient,
     });
   }
 
@@ -723,10 +812,11 @@ class AppDatabase {
     String? adresse,
     String? telephone,
     String? email,
+    String? typeClient,
   }) async {
     await smartUpdate(
       'clients',
-      {'nom': nom, 'adresse': adresse, 'telephone': telephone, 'email': email},
+      {'nom': nom, 'adresse': adresse, 'telephone': telephone, 'email': email, 'type_client': typeClient},
       where: 'uuid = ?',
       whereArgs: [uuid],
     );
@@ -931,17 +1021,111 @@ class AppDatabase {
     };
   }
 
+  Future<List<Map<String, Object?>>> getAllActiveConteneurs() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        c.uuid, c.id, c.sync,
+        c.dossier_uuid, c.numero_conteneur, c.dimension,
+        c.date_sorti_port, c.nom_transporteur, c.marque_camion,
+        c.numero_plaque, c.nom_chauffeur, c.numero_chauffeur,
+        c.lieu_dechargement, c.date_arriver_lieu_dechargement,
+        c.date_dechargement, c.date_depart_retour_port, c.date_retour_port,
+        d.numero_bl, d.statut AS dossier_statut,
+        cl.nom AS client_nom
+      FROM conteneurs c
+      LEFT JOIN dossiers d ON d.uuid = c.dossier_uuid
+      LEFT JOIN clients cl ON cl.uuid = d.client_uuid
+      WHERE c.id > 0
+        AND d.id > 0
+        AND LOWER(COALESCE(d.statut, '')) NOT IN ('clôturé', 'cloture', 'annulé', 'annule')
+      ORDER BY c.numero_conteneur ASC
+    ''');
+    return rows.toList();
+  }
+
+  Future<List<Dossier>> getActiveDossiers() async {
+    final rows = await smartQuery(
+      'dossiers',
+      where: "LOWER(COALESCE(statut, '')) NOT IN ('clôturé', 'cloture', 'annulé', 'annule')",
+      orderBy: 'numero_bl ASC',
+    );
+    return rows.map(Dossier.fromMap).toList();
+  }
+
   Future<void> createConteneur({
     required String dossierUuid,
     required String numeroConteneur,
     String? dimension,
+    String? dateSortiPort,
+    String? nomTransporteur,
+    String? marqueCamion,
+    String? numeroPlaque,
+    String? nomChauffeur,
+    String? numeroChauffeur,
+    String? lieuDechargement,
+    String? dateArriverLieuDechargement,
+    String? dateDechargement,
+    String? dateDepartRetourPort,
+    String? dateRetourPort,
   }) async {
     await smartInsert('conteneurs', {
       'uuid': const Uuid().v4(),
       'dossier_uuid': dossierUuid,
       'numero_conteneur': numeroConteneur,
       'dimension': dimension,
+      'date_sorti_port': dateSortiPort,
+      'nom_transporteur': nomTransporteur,
+      'marque_camion': marqueCamion,
+      'numero_plaque': numeroPlaque,
+      'nom_chauffeur': nomChauffeur,
+      'numero_chauffeur': numeroChauffeur,
+      'lieu_dechargement': lieuDechargement,
+      'date_arriver_lieu_dechargement': dateArriverLieuDechargement,
+      'date_dechargement': dateDechargement,
+      'date_depart_retour_port': dateDepartRetourPort,
+      'date_retour_port': dateRetourPort,
     });
+  }
+
+  Future<void> updateConteneur({
+    required String uuid,
+    String? dossierUuid,
+    String? numeroConteneur,
+    String? dimension,
+    String? dateSortiPort,
+    String? nomTransporteur,
+    String? marqueCamion,
+    String? numeroPlaque,
+    String? nomChauffeur,
+    String? numeroChauffeur,
+    String? lieuDechargement,
+    String? dateArriverLieuDechargement,
+    String? dateDechargement,
+    String? dateDepartRetourPort,
+    String? dateRetourPort,
+  }) async {
+    await smartUpdate(
+      'conteneurs',
+      {
+        'dossier_uuid': dossierUuid,
+        'numero_conteneur': numeroConteneur,
+        'dimension': dimension,
+        'date_sorti_port': dateSortiPort,
+        'nom_transporteur': nomTransporteur,
+        'marque_camion': marqueCamion,
+        'numero_plaque': numeroPlaque,
+        'nom_chauffeur': nomChauffeur,
+        'numero_chauffeur': numeroChauffeur,
+        'lieu_dechargement': lieuDechargement,
+        'date_arriver_lieu_dechargement': dateArriverLieuDechargement,
+        'date_dechargement': dateDechargement,
+        'date_depart_retour_port': dateDepartRetourPort,
+        'date_retour_port': dateRetourPort,
+      },
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
   }
 
   Future<void> deleteConteneur(String uuid) async {
@@ -1053,6 +1237,7 @@ class AppDatabase {
   }
 
   Future<bool> _depotArgentDuplicateExists({
+    required String table,
     required String monnaieUuid,
     required double montant,
     required String libelle,
@@ -1064,7 +1249,7 @@ class AppDatabase {
     final rows = await db.rawQuery(
       '''
       SELECT COUNT(*) AS total
-      FROM depot_argent
+      FROM $table
       WHERE id > 0
         AND monnaie_uuid = ?
         AND libelle = ?
@@ -1130,6 +1315,7 @@ class AppDatabase {
   }
 
   Future<List<DepotArgentRecord>> getDepotArgentRecords({
+    required String table,
     String? search,
     List<String>? sourceStatuses,
     int? limit = 250,
@@ -1147,7 +1333,7 @@ class AppDatabase {
         m.sigle AS monnaie_sigle,
         CASE WHEN da.libelle = 'Voyage camion' THEN v.numero_voyage ELSE ds.numero_bl END AS source_label,
         COALESCE(v.statut, ds.statut) AS source_statut
-      FROM depot_argent da
+      FROM $table da
       LEFT JOIN monnaies m ON m.uuid = da.monnaie_uuid AND m.id > 0
       LEFT JOIN voyages v ON v.uuid = da.source_uuid AND v.id > 0
       LEFT JOIN dossiers ds ON ds.uuid = da.source_uuid AND ds.id > 0
@@ -1169,6 +1355,7 @@ class AppDatabase {
   }
 
   Future<int> getDepotArgentCount({
+    required String table,
     String? search,
     List<String>? sourceStatuses,
   }) async {
@@ -1180,7 +1367,7 @@ class AppDatabase {
     final rows = await db.rawQuery(
       '''
       SELECT COUNT(*) AS total
-      FROM depot_argent da
+      FROM $table da
       LEFT JOIN voyages v ON v.uuid = da.source_uuid AND v.id > 0
       LEFT JOIN dossiers ds ON ds.uuid = da.source_uuid AND ds.id > 0
       WHERE ${whereClauses.join(' AND ')}
@@ -1191,6 +1378,7 @@ class AppDatabase {
   }
 
   Future<void> createDepotArgent({
+    required String table,
     required String monnaieUuid,
     required double montant,
     required String libelle,
@@ -1200,6 +1388,7 @@ class AppDatabase {
     String? agent,
   }) async {
     final hasDuplicate = await _depotArgentDuplicateExists(
+      table: table,
       monnaieUuid: monnaieUuid,
       montant: montant,
       libelle: libelle,
@@ -1210,7 +1399,7 @@ class AppDatabase {
       throw StateError('Un dépôt identique existe déjà.');
     }
 
-    await smartInsert('depot_argent', {
+    await smartInsert(table, {
       'uuid': const Uuid().v4(),
       'monnaie_uuid': monnaieUuid,
       'montant': montant,
@@ -1223,6 +1412,7 @@ class AppDatabase {
   }
 
   Future<void> updateDepotArgent({
+    required String table,
     required String uuid,
     required String monnaieUuid,
     required double montant,
@@ -1233,6 +1423,7 @@ class AppDatabase {
     String? agent,
   }) async {
     final hasDuplicate = await _depotArgentDuplicateExists(
+      table: table,
       monnaieUuid: monnaieUuid,
       montant: montant,
       libelle: libelle,
@@ -1245,7 +1436,7 @@ class AppDatabase {
     }
 
     await smartUpdate(
-      'depot_argent',
+      table,
       {
         'monnaie_uuid': monnaieUuid,
         'montant': montant,
@@ -1260,8 +1451,8 @@ class AppDatabase {
     );
   }
 
-  Future<void> deleteDepotArgent(String uuid) async {
-    await smartDelete('depot_argent', where: 'uuid = ?', whereArgs: [uuid]);
+  Future<void> deleteDepotArgent(String uuid, {required String table}) async {
+    await smartDelete(table, where: 'uuid = ?', whereArgs: [uuid]);
   }
 
   void _appendDepenseFilters(
@@ -1293,6 +1484,7 @@ class AppDatabase {
   }
 
   Future<bool> _depenseDuplicateExists({
+    required String table,
     required String monnaieUuid,
     required double montant,
     required String libelle,
@@ -1303,7 +1495,7 @@ class AppDatabase {
     final rows = await db.rawQuery(
       '''
       SELECT COUNT(*) AS total
-      FROM depenses
+      FROM $table
       WHERE id > 0
         AND monnaie_uuid = ?
         AND libelle = ?
@@ -1325,6 +1517,7 @@ class AppDatabase {
   // ── Dépenses CRUD ────────────────────────────────────────────────────────
 
   Future<List<DepenseRecord>> getDepenses({
+    required String table,
     String? search,
     bool? valideOnly,
     int? limit = 250,
@@ -1341,7 +1534,7 @@ class AppDatabase {
         m.nom AS monnaie_nom,
         m.sigle AS monnaie_sigle,
         COALESCE(u.nom_complet, u.nom_utilisateur) AS validateur_nom
-      FROM depenses d
+      FROM $table d
       LEFT JOIN monnaies m ON m.uuid = d.monnaie_uuid AND m.id > 0
       LEFT JOIN utilisateurs u ON u.uuid = d.validateur_uuid AND u.id > 0
       WHERE ${whereClauses.join(' AND ')}
@@ -1362,6 +1555,7 @@ class AppDatabase {
   }
 
   Future<int> getDepenseCount({
+    required String table,
     String? search,
     bool? valideOnly,
   }) async {
@@ -1373,7 +1567,7 @@ class AppDatabase {
     final rows = await db.rawQuery(
       '''
       SELECT COUNT(*) AS total
-      FROM depenses d
+      FROM $table d
       LEFT JOIN monnaies m ON m.uuid = d.monnaie_uuid AND m.id > 0
       WHERE ${whereClauses.join(' AND ')}
       ''',
@@ -1383,6 +1577,7 @@ class AppDatabase {
   }
 
   Future<void> createDepense({
+    required String table,
     required String monnaieUuid,
     required double montant,
     required String libelle,
@@ -1391,8 +1586,11 @@ class AppDatabase {
     int? valide,
     String? dateValidation,
     String? validateurUuid,
+    String? typeDepense,
+    String? origineUuid,
   }) async {
     final hasDuplicate = await _depenseDuplicateExists(
+      table: table,
       monnaieUuid: monnaieUuid,
       montant: montant,
       libelle: libelle,
@@ -1402,7 +1600,7 @@ class AppDatabase {
       throw StateError('Une dépense identique existe déjà.');
     }
 
-    await smartInsert('depenses', {
+    final row = <String, dynamic>{
       'uuid': const Uuid().v4(),
       'montant': montant,
       'libelle': libelle,
@@ -1412,10 +1610,16 @@ class AppDatabase {
       'date_validation': dateValidation,
       'validateur_uuid': validateurUuid,
       'monnaie_uuid': monnaieUuid,
-    });
+    };
+    if (table == 'depenses_marina_trans') {
+      row['type_depense'] = typeDepense;
+      row['origine_uuid'] = origineUuid;
+    }
+    await smartInsert(table, row);
   }
 
   Future<void> updateDepense({
+    required String table,
     required String uuid,
     required String monnaieUuid,
     required double montant,
@@ -1425,8 +1629,11 @@ class AppDatabase {
     int? valide,
     String? dateValidation,
     String? validateurUuid,
+    String? typeDepense,
+    String? origineUuid,
   }) async {
     final hasDuplicate = await _depenseDuplicateExists(
+      table: table,
       monnaieUuid: monnaieUuid,
       montant: montant,
       libelle: libelle,
@@ -1437,25 +1644,30 @@ class AppDatabase {
       throw StateError('Une dépense identique existe déjà.');
     }
 
+    final row = <String, dynamic>{
+      'montant': montant,
+      'libelle': libelle,
+      'observation': observation,
+      'date': date,
+      'valide': valide ?? 0,
+      'date_validation': dateValidation,
+      'validateur_uuid': validateurUuid,
+      'monnaie_uuid': monnaieUuid,
+    };
+    if (table == 'depenses_marina_trans') {
+      row['type_depense'] = typeDepense;
+      row['origine_uuid'] = origineUuid;
+    }
     await smartUpdate(
-      'depenses',
-      {
-        'montant': montant,
-        'libelle': libelle,
-        'observation': observation,
-        'date': date,
-        'valide': valide ?? 0,
-        'date_validation': dateValidation,
-        'validateur_uuid': validateurUuid,
-        'monnaie_uuid': monnaieUuid,
-      },
+      table,
+      row,
       where: 'uuid = ?',
       whereArgs: [uuid],
     );
   }
 
-  Future<void> deleteDepense(String uuid) async {
-    await smartDelete('depenses', where: 'uuid = ?', whereArgs: [uuid]);
+  Future<void> deleteDepense(String uuid, {required String table}) async {
+    await smartDelete(table, where: 'uuid = ?', whereArgs: [uuid]);
   }
 
   // ── Monnaies ──────────────────────────────────────────────────────────────
@@ -1483,6 +1695,7 @@ class AppDatabase {
     String? camionUuid,
     String? chauffeurUuid,
     String? convoyeurUuid,
+    String? clientUuid,
   }) async {
     await smartInsert('voyages', {
       'uuid': const Uuid().v4(),
@@ -1496,6 +1709,7 @@ class AppDatabase {
       'camion_uuid': camionUuid,
       'chauffeur_uuid': chauffeurUuid,
       'convoyeur_uuid': convoyeurUuid,
+      'client_uuid': clientUuid,
     });
   }
 
@@ -1511,6 +1725,7 @@ class AppDatabase {
     String? camionUuid,
     String? chauffeurUuid,
     String? convoyeurUuid,
+    String? clientUuid,
   }) async {
     await smartUpdate(
       'voyages',
@@ -1525,6 +1740,7 @@ class AppDatabase {
         'camion_uuid': camionUuid,
         'chauffeur_uuid': chauffeurUuid,
         'convoyeur_uuid': convoyeurUuid,
+        'client_uuid': clientUuid,
       },
       where: 'uuid = ?',
       whereArgs: [uuid],
@@ -1541,9 +1757,11 @@ class AppDatabase {
   /// sigle, nom, total_depot, total_depense (validated), solde.
   /// Also returns the count of pending (non-validated) depenses as a
   /// separate single-row query via [getPendingDepenseCount].
-  Future<List<Map<String, Object?>>> getDashboardFinancialRows() async {
+  Future<List<Map<String, Object?>>> getDashboardFinancialRows({
+    required String depotTable,
+    required String depenseTable,
+  }) async {
     final db = await initialize();
-    // Collect all currencies that appear in depot_argent or depenses.
     final rows = await db.rawQuery('''
       SELECT
         m.uuid        AS monnaie_uuid,
@@ -1551,30 +1769,30 @@ class AppDatabase {
         m.sigle       AS sigle,
         COALESCE((
           SELECT SUM(d.montant)
-          FROM depot_argent d
+          FROM $depotTable d
           WHERE d.monnaie_uuid = m.uuid
         ), 0) AS total_depot,
         COALESCE((
           SELECT SUM(e.montant)
-          FROM depenses e
+          FROM $depenseTable e
           WHERE e.monnaie_uuid = m.uuid
             AND e.valide = 1
         ), 0) AS total_depense
       FROM monnaies m
       WHERE m.uuid IN (
-        SELECT DISTINCT monnaie_uuid FROM depot_argent WHERE monnaie_uuid IS NOT NULL
+        SELECT DISTINCT monnaie_uuid FROM $depotTable WHERE monnaie_uuid IS NOT NULL
         UNION
-        SELECT DISTINCT monnaie_uuid FROM depenses WHERE monnaie_uuid IS NOT NULL
+        SELECT DISTINCT monnaie_uuid FROM $depenseTable WHERE monnaie_uuid IS NOT NULL
       )
       ORDER BY m.nom ASC
     ''');
     return rows.toList();
   }
 
-  Future<int> getPendingDepenseCount() async {
+  Future<int> getPendingDepenseCount({required String table}) async {
     final db = await initialize();
     final result = await db.rawQuery(
-      'SELECT COUNT(*) AS cnt FROM depenses WHERE valide = 0 OR valide IS NULL',
+      'SELECT COUNT(*) AS cnt FROM $table WHERE valide = 0 OR valide IS NULL',
     );
     return (result.first['cnt'] as int?) ?? 0;
   }

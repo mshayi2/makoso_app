@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
+import '../models/depot_argent.dart';
 import '../models/depense.dart';
 import '../models/monnaie.dart';
 import '../models/utilisateur.dart';
+import 'main_screen.dart' show AppCompany;
 
 const int _kDepensePageSize = 250;
 
@@ -21,8 +23,13 @@ const List<String> _kDepenseFormStatuses = [
 
 class DepensesScreen extends StatefulWidget {
   final Utilisateur user;
+  final AppCompany company;
 
-  const DepensesScreen({super.key, required this.user});
+  const DepensesScreen({
+    super.key,
+    required this.user,
+    required this.company,
+  });
 
   @override
   State<DepensesScreen> createState() => _DepensesScreenState();
@@ -47,8 +54,17 @@ class _DepensesScreenState extends State<DepensesScreen> {
   String _selectedStatusFilter = 'Toutes';
   String _selectedValidationStatus = 'Automatique';
 
+  // MARINA Trans extra fields
+  String? _selectedTypeDepense;
+  String? _selectedOrigineUuid;
+  List<DepotSourceOption> _origineOptions = [];
+
   List<Monnaie> _monnaies = [];
   List<DepenseRecord> _depenses = [];
+
+  String get _depenseTable => widget.company == AppCompany.marian
+      ? 'depenses_marina_trans'
+      : 'depenses_makoso';
 
   static const double _autoValidationUsdThreshold = 1000;
 
@@ -88,6 +104,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
     final search = _searchCtrl.text;
     final statusFilter = _kDepenseStatusFilters[_selectedStatusFilter];
     final total = await AppDatabase.instance.getDepenseCount(
+      table: _depenseTable,
       search: search,
       valideOnly: statusFilter,
     );
@@ -100,6 +117,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
                 ? maxPage
                 : targetPage;
     final records = await AppDatabase.instance.getDepenses(
+      table: _depenseTable,
       search: search,
       valideOnly: statusFilter,
       limit: _kDepensePageSize,
@@ -111,6 +129,48 @@ class _DepensesScreenState extends State<DepensesScreen> {
       _totalRows = total;
       _depenses = records;
       _isGridLoading = false;
+    });
+  }
+
+  Future<void> _loadOrigineOptions({String? includeOrigineUuid}) async {
+    if (widget.company != AppCompany.marian) return;
+    final type = _selectedTypeDepense;
+    if (type == null) {
+      if (!mounted) return;
+      setState(() {
+        _origineOptions = [];
+        _selectedOrigineUuid = null;
+      });
+      return;
+    }
+    List<DepotSourceOption> options;
+    if (type == 'Voyage camion') {
+      options = await AppDatabase.instance.getDepotSourceOptions(
+        'Voyage camion',
+        includeSourceUuid: includeOrigineUuid,
+      );
+    } else {
+      final camions = await AppDatabase.instance.getAllCamions();
+      options = camions.map((c) {
+        final label = [c.marque, c.plaque]
+            .where((v) => v != null && v.isNotEmpty)
+            .join(' – ');
+        return DepotSourceOption(
+          uuid: c.uuid,
+          label: label.isEmpty ? c.uuid : label,
+          statut: null,
+        );
+      }).toList();
+    }
+    if (!mounted) return;
+    setState(() {
+      _origineOptions = options;
+      if (includeOrigineUuid != null &&
+          !options.any((o) => o.uuid == includeOrigineUuid)) {
+        _selectedOrigineUuid = includeOrigineUuid;
+      } else if (!options.any((o) => o.uuid == _selectedOrigineUuid)) {
+        _selectedOrigineUuid = null;
+      }
     });
   }
 
@@ -376,6 +436,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
     try {
       if (isEditing) {
         await AppDatabase.instance.updateDepense(
+          table: _depenseTable,
           uuid: _editingDepense!.uuid,
           monnaieUuid: _selectedMonnaieUuid!,
           montant: montant,
@@ -385,9 +446,12 @@ class _DepensesScreenState extends State<DepensesScreen> {
           valide: validationDecision.valide,
           dateValidation: validationDecision.dateValidation,
           validateurUuid: validationDecision.validateurUuid,
+          typeDepense: widget.company == AppCompany.marian ? _selectedTypeDepense : null,
+          origineUuid: widget.company == AppCompany.marian ? _selectedOrigineUuid : null,
         );
       } else {
         await AppDatabase.instance.createDepense(
+          table: _depenseTable,
           monnaieUuid: _selectedMonnaieUuid!,
           montant: montant,
           libelle: _libelleCtrl.text.trim(),
@@ -396,6 +460,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
           valide: validationDecision.valide,
           dateValidation: validationDecision.dateValidation,
           validateurUuid: validationDecision.validateurUuid,
+          typeDepense: widget.company == AppCompany.marian ? _selectedTypeDepense : null,
+          origineUuid: widget.company == AppCompany.marian ? _selectedOrigineUuid : null,
         );
       }
 
@@ -428,7 +494,15 @@ class _DepensesScreenState extends State<DepensesScreen> {
       _observationCtrl.text = depense.observation ?? '';
       _selectedMonnaieUuid = depense.monnaieUuid;
       _selectedValidationStatus = depense.validationStatus;
+      if (widget.company == AppCompany.marian) {
+        _selectedTypeDepense = depense.typeDepense;
+        _selectedOrigineUuid = depense.origineUuid;
+        _origineOptions = [];
+      }
     });
+    if (widget.company == AppCompany.marian) {
+      await _loadOrigineOptions(includeOrigineUuid: depense.origineUuid);
+    }
   }
 
   void _cancelEdit() {
@@ -437,6 +511,11 @@ class _DepensesScreenState extends State<DepensesScreen> {
       _editingDepense = null;
       _selectedMonnaieUuid = null;
       _selectedValidationStatus = 'Automatique';
+      if (widget.company == AppCompany.marian) {
+        _selectedTypeDepense = null;
+        _selectedOrigineUuid = null;
+        _origineOptions = [];
+      }
       _libelleCtrl.clear();
       _montantCtrl.clear();
       _dateCtrl.clear();
@@ -463,7 +542,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
 
     if (confirmed != true) return;
     if (_editingDepense?.uuid == depense.uuid) _cancelEdit();
-    await AppDatabase.instance.deleteDepense(depense.uuid);
+    await AppDatabase.instance.deleteDepense(depense.uuid, table: _depenseTable);
     await _loadGrid();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -500,6 +579,63 @@ class _DepensesScreenState extends State<DepensesScreen> {
           spacing: gap,
           runSpacing: gap,
           children: [
+            if (widget.company == AppCompany.marian) ...[
+              SizedBox(
+                width: fieldWidth,
+                child: DropdownButtonFormField<String>(
+                  value: _selectedTypeDepense,
+                  decoration: const InputDecoration(
+                    labelText: 'Type dépense *',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.category_outlined),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'Voyage camion',
+                      child: Text('Voyage camion'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Panne ou entretien camion',
+                      child: Text('Panne ou entretien camion'),
+                    ),
+                  ],
+                  validator: (v) => v == null ? 'Champ requis' : null,
+                  onChanged: (value) async {
+                    setState(() {
+                      _selectedTypeDepense = value;
+                      _selectedOrigineUuid = null;
+                      _origineOptions = [];
+                    });
+                    await _loadOrigineOptions();
+                  },
+                ),
+              ),
+              SizedBox(
+                width: fieldWidth,
+                child: DropdownButtonFormField<String>(
+                  value: _selectedOrigineUuid,
+                  decoration: InputDecoration(
+                    labelText: _selectedTypeDepense == 'Voyage camion'
+                        ? 'Voyage *'
+                        : 'Camion *',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: Icon(
+                      _selectedTypeDepense == 'Voyage camion'
+                          ? Icons.local_shipping_outlined
+                          : Icons.directions_car_outlined,
+                    ),
+                  ),
+                  items: _origineOptions
+                      .map((o) => DropdownMenuItem(
+                            value: o.uuid,
+                            child: Text(o.label),
+                          ))
+                      .toList(),
+                  validator: (v) => v == null ? 'Champ requis' : null,
+                  onChanged: (value) => setState(() => _selectedOrigineUuid = value),
+                ),
+              ),
+            ],
             SizedBox(
               width: fieldWidth,
               child: TextFormField(

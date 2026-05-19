@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../database/app_database.dart';
 import '../models/camion.dart';
 import '../models/chauffeur_convoyeur.dart';
+import '../models/client.dart';
 import '../models/monnaie.dart';
 import '../models/utilisateur.dart';
 import '../models/voyage.dart';
+import 'main_screen.dart' show AppCompany;
 
 const List<String> _kStatuts = [
   'En attente',
@@ -16,7 +18,8 @@ const List<String> _kStatuts = [
 
 class VoyagesScreen extends StatefulWidget {
   final Utilisateur user;
-  const VoyagesScreen({super.key, required this.user});
+  final AppCompany company;
+  const VoyagesScreen({super.key, required this.user, required this.company});
 
   @override
   State<VoyagesScreen> createState() => _VoyagesScreenState();
@@ -36,6 +39,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
   String? _selectedConvoyeurUuid;
   String? _selectedMonnaieUuid;
   String? _selectedStatut;
+  String? _selectedClientUuid;
 
   Voyage? _editingVoyage;
   bool _isSaving = false;
@@ -46,6 +50,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
   List<ChauffeurConvoyeur> _chauffeurs = [];
   List<ChauffeurConvoyeur> _convoyeurs = [];
   List<Monnaie> _monnaies = [];
+  List<Client> _marinaClients = [];
 
   @override
   void initState() {
@@ -73,6 +78,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
       AppDatabase.instance.getAllCamions(),
       AppDatabase.instance.getAllChauffeursConvoyeurs(),
       AppDatabase.instance.getAllMonnaies(),
+      AppDatabase.instance.getClientsByType('marina'),
     ]);
     if (!mounted) return;
     final tous = results[2] as List<ChauffeurConvoyeur>;
@@ -82,6 +88,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
       _chauffeurs = tous.where((c) => c.fonction == 'Chauffeur').toList();
       _convoyeurs = tous.where((c) => c.fonction == 'Convoyeur').toList();
       _monnaies = results[3] as List<Monnaie>;
+      _marinaClients = results[4] as List<Client>;
       _isLoading = false;
     });
   }
@@ -155,6 +162,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
       _selectedConvoyeurUuid = _convoyeurs.any((c) => c.uuid == v.convoyeurUuid) ? v.convoyeurUuid : null;
       _selectedMonnaieUuid = _monnaies.any((m) => m.uuid == v.monnaieUuid) ? v.monnaieUuid : null;
       _selectedStatut = _kStatuts.contains(v.statut) ? v.statut : null;
+      _selectedClientUuid = _marinaClients.any((c) => c.uuid == v.clientUuid) ? v.clientUuid : null;
     });
   }
 
@@ -172,6 +180,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
       _selectedConvoyeurUuid = null;
       _selectedMonnaieUuid = null;
       _selectedStatut = null;
+      _selectedClientUuid = null;
     });
   }
 
@@ -194,6 +203,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
           camionUuid: _selectedCamionUuid,
           chauffeurUuid: _selectedChauffeurUuid,
           convoyeurUuid: _selectedConvoyeurUuid,
+          clientUuid: _selectedClientUuid,
         );
       } else {
         await AppDatabase.instance.createVoyage(
@@ -207,6 +217,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
           camionUuid: _selectedCamionUuid,
           chauffeurUuid: _selectedChauffeurUuid,
           convoyeurUuid: _selectedConvoyeurUuid,
+          clientUuid: _selectedClientUuid,
         );
       }
       _cancelEdit();
@@ -292,6 +303,22 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                           prefixIcon: Icon(Icons.tag),
                         ),
                         validator: (v) => (v == null || v.trim().isEmpty) ? 'Champ requis' : null,
+                      ),
+                      const SizedBox(height: 12),
+                      // Client (Marina Trans)
+                      DropdownButtonFormField<String>(
+                        value: _selectedClientUuid,
+                        decoration: const InputDecoration(
+                          labelText: 'Client',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.person_outline),
+                        ),
+                        items: [
+                          const DropdownMenuItem(value: null, child: Text('— Aucun —')),
+                          ..._marinaClients.map((c) =>
+                              DropdownMenuItem(value: c.uuid, child: Text(c.nom))),
+                        ],
+                        onChanged: (v) => setState(() => _selectedClientUuid = v),
                       ),
                       const SizedBox(height: 12),
                       TextFormField(

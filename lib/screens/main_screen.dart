@@ -8,6 +8,7 @@ import '../services/sync_service.dart';
 import 'camions_screen.dart';
 import 'chauffeurs_convoyeurs_screen.dart';
 import 'clients_screen.dart';
+import 'conteneurs_makoso_screen.dart';
 import 'depot_argent_screen.dart';
 import 'depenses_screen.dart';
 import 'dossiers_screen.dart';
@@ -16,11 +17,14 @@ import 'tableau_de_bord_screen.dart';
 import 'utilisateurs_screen.dart';
 import 'voyages_screen.dart';
 
+enum AppCompany { makoso, marian }
+
 enum _NavOption {
   tableauDeBord,
   depotArgent,
   depenses,
   dossiers,
+  conteneursMakoso,
   voyages,
   clients,
   chauffeursConvoyeurs,
@@ -40,6 +44,7 @@ const _navItems = [
   _NavItem(_NavOption.depotArgent, Icons.account_balance_wallet_outlined, 'Dépôt Argent'),
   _NavItem(_NavOption.depenses, Icons.money_off_outlined, 'Dépenses'),
   _NavItem(_NavOption.dossiers, Icons.folder_outlined, 'Dossiers'),
+  _NavItem(_NavOption.conteneursMakoso, Icons.inventory_2_outlined, 'Conteneurs'),
   _NavItem(_NavOption.voyages, Icons.local_shipping_outlined, 'Voyages'),
   _NavItem(_NavOption.clients, Icons.people_outline, 'Clients'),
   _NavItem(_NavOption.chauffeursConvoyeurs, Icons.drive_eta_outlined, 'Chauffeurs / Convoyeurs'),
@@ -49,11 +54,13 @@ const _navItems = [
 
 class MainScreen extends StatefulWidget {
   final Utilisateur user;
+  final AppCompany company;
   final bool showDefaultPasswordWarning;
 
   const MainScreen({
     super.key,
     required this.user,
+    required this.company,
     this.showDefaultPasswordWarning = false,
   });
 
@@ -78,7 +85,9 @@ class _MainScreenState extends State<MainScreen> {
     _selected = widget.user.role == 'caissier'
         ? _NavOption.depotArgent
         : widget.user.role == 'opérateur logistique'
-            ? _NavOption.dossiers
+            ? (widget.company == AppCompany.marian
+                ? _NavOption.voyages
+                : _NavOption.dossiers)
             : _NavOption.tableauDeBord;
     _screenVersions = {
       for (final option in _NavOption.values) option: 0,
@@ -202,15 +211,19 @@ class _MainScreenState extends State<MainScreen> {
 
   Widget _buildScreen(_NavOption option) {
     final child = switch (option) {
-      _NavOption.tableauDeBord => const TableauDeBordScreen(),
-      _NavOption.depotArgent => DepotArgentScreen(user: widget.user),
-      _NavOption.depenses => DepensesScreen(user: widget.user),
+      _NavOption.tableauDeBord => TableauDeBordScreen(
+          showVoyages: widget.company == AppCompany.marian,
+          company: widget.company,
+        ),
+      _NavOption.depotArgent => DepotArgentScreen(user: widget.user, company: widget.company),
+      _NavOption.depenses => DepensesScreen(user: widget.user, company: widget.company),
       _NavOption.utilisateurs => const UtilisateursScreen(),
-      _NavOption.clients => const ClientsScreen(),
+      _NavOption.clients => ClientsScreen(company: widget.company),
       _NavOption.camions => const CamionsScreen(),
       _NavOption.chauffeursConvoyeurs => const ChauffeursConvoyeursScreen(),
-      _NavOption.voyages => VoyagesScreen(user: widget.user),
+      _NavOption.voyages => VoyagesScreen(user: widget.user, company: widget.company),
       _NavOption.dossiers => DossiersScreen(user: widget.user),
+      _NavOption.conteneursMakoso => ConteneursMakosoScreen(user: widget.user),
     };
 
     return KeyedSubtree(
@@ -403,6 +416,23 @@ class _MainScreenState extends State<MainScreen> {
     confirmCtrl.dispose();
   }
 
+  // ── Switch company ─────────────────────────────────────────────────────────
+  void _switchCompany() {
+    _syncTimer?.cancel();
+    final other = widget.company == AppCompany.makoso
+        ? AppCompany.marian
+        : AppCompany.makoso;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MainScreen(
+          user: widget.user,
+          company: other,
+        ),
+      ),
+    );
+  }
+
   // ── Logout ─────────────────────────────────────────────────────────────────
   void _logout() {
     _syncTimer?.cancel();
@@ -415,7 +445,12 @@ class _MainScreenState extends State<MainScreen> {
   // ── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    const sidebarBg = Color(0xFF1A237E);
+    final sidebarBg = widget.company == AppCompany.makoso
+        ? const Color(0xFF1A237E)
+        : const Color(0xFF00695C);
+    final companyLabel = widget.company == AppCompany.makoso
+        ? 'MAKOSO Services'
+        : 'MARINA Trans';
 
     return Scaffold(
       body: Row(
@@ -427,6 +462,23 @@ class _MainScreenState extends State<MainScreen> {
               color: sidebarBg,
               child: Column(
                 children: [
+                  // Company badge
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                    color: Colors.black.withValues(alpha: 0.18),
+                    child: Text(
+                      companyLabel,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ),
                   // User header
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -470,17 +522,48 @@ class _MainScreenState extends State<MainScreen> {
                     child: ListView(
                       padding: EdgeInsets.zero,
                       children: _navItems.where((item) {
+                        // 1. Filter by company
+                        final isMakoso = widget.company == AppCompany.makoso;
+                        const makosOptions = {
+                          _NavOption.tableauDeBord,
+                          _NavOption.depotArgent,
+                          _NavOption.depenses,
+                          _NavOption.dossiers,
+                          _NavOption.conteneursMakoso,
+                          _NavOption.clients,
+                          _NavOption.utilisateurs,
+                        };
+                        const marianOptions = {
+                          _NavOption.tableauDeBord,
+                          _NavOption.depotArgent,
+                          _NavOption.depenses,
+                          _NavOption.voyages,
+                          _NavOption.clients,
+                          _NavOption.chauffeursConvoyeurs,
+                          _NavOption.camions,
+                          _NavOption.utilisateurs,
+                        };
+                        if (isMakoso && !makosOptions.contains(item.option)) return false;
+                        if (!isMakoso && !marianOptions.contains(item.option)) return false;
+
+                        // 2. Filter by role
                         final role = widget.user.role;
                         if (role == 'caissier') {
                           return item.option == _NavOption.depotArgent ||
                               item.option == _NavOption.depenses;
-                        }                        if (role == 'opérateur logistique') {
-                          return item.option == _NavOption.dossiers ||
-                              item.option == _NavOption.voyages ||
-                              item.option == _NavOption.clients ||
-                              item.option == _NavOption.chauffeursConvoyeurs ||
-                              item.option == _NavOption.camions;
-                        }                        if (item.option == _NavOption.utilisateurs) {
+                        }
+                        if (role == 'opérateur logistique') {
+                          if (isMakoso) {
+                            return item.option == _NavOption.dossiers ||
+                                item.option == _NavOption.clients;
+                          } else {
+                            return item.option == _NavOption.voyages ||
+                                item.option == _NavOption.clients ||
+                                item.option == _NavOption.chauffeursConvoyeurs ||
+                                item.option == _NavOption.camions;
+                          }
+                        }
+                        if (item.option == _NavOption.utilisateurs) {
                           return role == 'admin';
                         }
                         return true;
@@ -545,6 +628,19 @@ class _MainScreenState extends State<MainScreen> {
                               : () => unawaited(
                                     _runSynchronization(showFeedback: true),
                                   ),
+                        ),
+                        const Divider(height: 1, color: Colors.white24),
+                        const SizedBox(height: 4),
+                        ListTile(
+                          leading: const Icon(Icons.swap_horiz,
+                              color: Colors.white70),
+                          title: Text(
+                            widget.company == AppCompany.makoso
+                                ? 'Passer à MARINA Trans'
+                                : 'Passer à MAKOSO Services',
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                          onTap: _switchCompany,
                         ),
                         const Divider(height: 1, color: Colors.white24),
                         const SizedBox(height: 4),

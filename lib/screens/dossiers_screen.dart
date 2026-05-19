@@ -95,7 +95,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
     setState(() => _isLoading = true);
     final results = await Future.wait([
       AppDatabase.instance.getAllDossiers(),
-      AppDatabase.instance.getAllClients(),
+      AppDatabase.instance.getClientsByType('makoso'),
       AppDatabase.instance.getConteneurCountsByDossier(),
     ]);
     if (!mounted) return;

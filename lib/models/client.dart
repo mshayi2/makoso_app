@@ -6,6 +6,7 @@ class Client {
   final String? adresse;
   final String? telephone;
   final String? email;
+  final String? typeClient;
 
   const Client({
     required this.uuid,
@@ -15,6 +16,7 @@ class Client {
     this.adresse,
     this.telephone,
     this.email,
+    this.typeClient,
   });
 
   factory Client.fromMap(Map<String, dynamic> map) {
@@ -26,6 +28,7 @@ class Client {
       adresse: map['adresse'] as String?,
       telephone: map['telephone'] as String?,
       email: map['email'] as String?,
+      typeClient: map['type_client'] as String?,
     );
   }
 }

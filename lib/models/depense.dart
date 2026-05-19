@@ -13,6 +13,8 @@ class DepenseRecord {
   final String? monnaieNom;
   final String? monnaieSigle;
   final String? validateurNom;
+  final String? typeDepense;
+  final String? origineUuid;
 
   const DepenseRecord({
     required this.uuid,
@@ -29,6 +31,8 @@ class DepenseRecord {
     this.monnaieNom,
     this.monnaieSigle,
     this.validateurNom,
+    this.typeDepense,
+    this.origineUuid,
   });
 
   int get valideValue => valide ?? 0;
@@ -57,6 +61,8 @@ class DepenseRecord {
       monnaieNom: map['monnaie_nom'] as String?,
       monnaieSigle: map['monnaie_sigle'] as String?,
       validateurNom: map['validateur_nom'] as String?,
+      typeDepense: map['type_depense'] as String?,
+      origineUuid: map['origine_uuid'] as String?,
     );
   }
 }
