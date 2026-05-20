@@ -1842,4 +1842,59 @@ class AppDatabase {
     ''', [today, today, today]);
     return rows.toList();
   }
+
+  // ─── Camions dashboard (Marina Trans) ────────────────────────────────────
+
+  /// Returns one row per (camion × monnaie) with:
+  /// camion_uuid, marque, plaque, modele, nb_voyages,
+  /// monnaie_uuid, sigle, monnaie_nom,
+  /// total_depot, total_depense_voyage, total_depense_panne.
+  Future<List<Map<String, Object?>>> getCamionsDashboardRows() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        c.uuid        AS camion_uuid,
+        c.marque      AS marque,
+        c.plaque      AS plaque,
+        c.modele      AS modele,
+        (SELECT COUNT(*) FROM voyages v WHERE v.camion_uuid = c.uuid AND v.id > 0) AS nb_voyages,
+        m.uuid        AS monnaie_uuid,
+        m.sigle       AS sigle,
+        m.nom         AS monnaie_nom,
+        COALESCE((
+          SELECT SUM(da.montant)
+          FROM depot_argent_marina_trans da
+          WHERE da.id > 0
+            AND da.monnaie_uuid = m.uuid
+            AND da.source_uuid IN (
+              SELECT v.uuid FROM voyages v WHERE v.camion_uuid = c.uuid AND v.id > 0
+            )
+        ), 0) AS total_depot,
+        COALESCE((
+          SELECT SUM(dep.montant)
+          FROM depenses_marina_trans dep
+          WHERE dep.id > 0
+            AND dep.valide = 1
+            AND dep.monnaie_uuid = m.uuid
+            AND dep.type_depense = 'Voyage camion'
+            AND dep.origine_uuid IN (
+              SELECT v.uuid FROM voyages v WHERE v.camion_uuid = c.uuid AND v.id > 0
+            )
+        ), 0) AS total_depense_voyage,
+        COALESCE((
+          SELECT SUM(dep.montant)
+          FROM depenses_marina_trans dep
+          WHERE dep.id > 0
+            AND dep.valide = 1
+            AND dep.monnaie_uuid = m.uuid
+            AND dep.type_depense = 'Panne ou entretien camion'
+            AND dep.origine_uuid = c.uuid
+        ), 0) AS total_depense_panne
+      FROM camions c
+      CROSS JOIN monnaies m
+      WHERE c.id > 0
+      ORDER BY c.marque ASC, c.plaque ASC, m.sigle ASC
+    ''');
+    return rows.toList();
+  }
 }

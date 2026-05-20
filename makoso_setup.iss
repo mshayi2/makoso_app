@@ -5,7 +5,7 @@
 ; ============================================================
 
 #define AppName      "Makoso"
-#define AppVersion   "1.1.0"
+#define AppVersion   "1.1.1"
 #define AppPublisher "Menji Group"
 #define AppURL       "https://makoso.menji-group.com"
 #define AppExeName   "makoso_app.exe"
@@ -36,7 +36,7 @@ SolidCompression=yes
 LZMAUseSeparateProcess=yes
 
 ; Icône du setup
-SetupIconFile={#BuildDir}\{#AppExeName},0
+SetupIconFile=windows\runner\resources\app_icon.ico
 
 ; Interface
 WizardStyle=modern

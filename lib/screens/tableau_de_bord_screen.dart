@@ -32,6 +32,9 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
   // Dossiers en retard
   List<Map<String, Object?>> _dossiersEnRetard = [];
 
+  // Camions dashboard (Marina Trans)
+  List<Map<String, Object?>> _camionRows = [];
+
   @override
   void initState() {
     super.initState();
@@ -50,6 +53,7 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
       db.getPendingDepenseCount(table: depenseTable),
       if (widget.showVoyages) db.getDashboardVoyageStats(),
       if (!isMarian) db.getDossiersEnRetard(),
+      if (isMarian) db.getCamionsDashboardRows(),
     ];
     final results = await Future.wait(futures);
 
@@ -63,9 +67,12 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
         _voyageTotal = stats['total'] ?? 0;
         _voyageEnCours = stats['en_cours'] ?? 0;
         _voyageEnAttente = stats['en_attente'] ?? 0;
+        // index 3: dossiersEnRetard (if !isMarian) OR camionsDashboard (if isMarian)
         _dossiersEnRetard = isMarian ? [] : results[3] as List<Map<String, Object?>>;
+        _camionRows = isMarian ? results[3] as List<Map<String, Object?>> : [];
       } else {
         _dossiersEnRetard = isMarian ? [] : results[2] as List<Map<String, Object?>>;
+        _camionRows = [];
       }
       _loading = false;
     });
@@ -125,6 +132,25 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
                             enCours: _voyageEnCours,
                             enAttente: _voyageEnAttente,
                           ),
+                          const SizedBox(height: 28),
+                        ],
+
+                        // ── Détail camions (Marina Trans) ─────────────────
+                        if (widget.company == AppCompany.marian) ...[
+                          _SectionHeader(
+                            icon: Icons.airport_shuttle_rounded,
+                            label: 'Détail camions',
+                            iconColor: const Color(0xFF8B5CF6),
+                            badgeColor: const Color(0xFFF5F3FF),
+                          ),
+                          const SizedBox(height: 12),
+                          if (_camionRows.isEmpty)
+                            _EmptyState(
+                              icon: Icons.airport_shuttle_outlined,
+                              message: 'Aucune donnée camion disponible.',
+                            )
+                          else
+                            _CamionDashboardSection(rows: _camionRows),
                           const SizedBox(height: 28),
                         ],
 
@@ -929,6 +955,330 @@ class _StatusPill extends StatelessWidget {
           fontWeight: FontWeight.w700,
           letterSpacing: 0.2,
         ),
+      ),
+    );
+  }
+}
+
+// ─── Camion dashboard (Marina Trans) ─────────────────────────────────────────
+
+class _CamionDashboardSection extends StatelessWidget {
+  final List<Map<String, Object?>> rows;
+  const _CamionDashboardSection({required this.rows});
+
+  @override
+  Widget build(BuildContext context) {
+    // Group rows by camion_uuid
+    final Map<String, List<Map<String, Object?>>> grouped = {};
+    for (final row in rows) {
+      final uuid = row['camion_uuid'] as String? ?? '';
+      grouped.putIfAbsent(uuid, () => []).add(row);
+    }
+    return Column(
+      children: [
+        for (int i = 0; i < grouped.length; i++) ...[
+          _CamionDashboardCard(monnaieRows: grouped.values.elementAt(i)),
+          if (i < grouped.length - 1) const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+}
+
+class _CamionDashboardCard extends StatelessWidget {
+  final List<Map<String, Object?>> monnaieRows;
+  const _CamionDashboardCard({required this.monnaieRows});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final fmt = NumberFormat('#,##0.00', 'fr_FR');
+
+    final first = monnaieRows.first;
+    final marque = (first['marque'] as String?) ?? '';
+    final plaque = (first['plaque'] as String?) ?? '';
+    final modele = (first['modele'] as String?) ?? '';
+    final nbVoyages = (first['nb_voyages'] as num?)?.toInt() ?? 0;
+
+    final label = [marque, plaque].where((v) => v.isNotEmpty).join(' – ');
+
+    // Filter to rows that have at least one non-zero value
+    final activeRows = monnaieRows.where((r) {
+      final depot = (r['total_depot'] as num?)?.toDouble() ?? 0;
+      final depV = (r['total_depense_voyage'] as num?)?.toDouble() ?? 0;
+      final depP = (r['total_depense_panne'] as num?)?.toDouble() ?? 0;
+      return depot != 0 || depV != 0 || depP != 0;
+    }).toList();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(10),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Header ──
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF8B5CF6).withAlpha(18),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF8B5CF6), Color(0xFF6D28D9)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.airport_shuttle_rounded,
+                      color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label.isEmpty ? 'Camion sans nom' : label,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                      if (modele.isNotEmpty)
+                        Text(
+                          modele,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8B5CF6).withAlpha(30),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: const Color(0xFF8B5CF6).withAlpha(80)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.route_rounded,
+                          size: 14, color: Color(0xFF6D28D9)),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$nbVoyages voyage${nbVoyages > 1 ? "s" : ""}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF6D28D9),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // ── Monnaie table ──
+          if (activeRows.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Aucun mouvement financier enregistré.',
+                style: TextStyle(
+                  color: cs.onSurfaceVariant,
+                  fontSize: 13,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            )
+          else ...[
+            // Column headers
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  _colHeader(cs, 'MONNAIE', flex: 2),
+                  _colHeader(cs, 'DÉPÔTS', flex: 3, right: true),
+                  _colHeader(cs, 'DÉP. VOYAGE', flex: 3, right: true),
+                  _colHeader(cs, 'DÉP. PANNE', flex: 3, right: true),
+                  _colHeader(cs, 'TOTAL DÉP.', flex: 3, right: true),
+                  _colHeader(cs, 'SOLDE', flex: 3, right: true),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            for (int i = 0; i < activeRows.length; i++) ...[
+              _CamionMonnaieRow(
+                row: activeRows[i],
+                fmt: fmt,
+                isEven: i.isEven,
+              ),
+              if (i < activeRows.length - 1) const Divider(height: 1, indent: 16),
+            ],
+            const SizedBox(height: 4),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _colHeader(ColorScheme cs, String text,
+      {required int flex, bool right = false}) {
+    return Expanded(
+      flex: flex,
+      child: Text(
+        text,
+        textAlign: right ? TextAlign.right : TextAlign.left,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.4,
+          color: cs.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _CamionMonnaieRow extends StatelessWidget {
+  final Map<String, Object?> row;
+  final NumberFormat fmt;
+  final bool isEven;
+
+  const _CamionMonnaieRow({
+    required this.row,
+    required this.fmt,
+    required this.isEven,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sigle = (row['sigle'] as String?) ?? (row['monnaie_nom'] as String?) ?? '?';
+    final depot = (row['total_depot'] as num?)?.toDouble() ?? 0;
+    final depVoyage = (row['total_depense_voyage'] as num?)?.toDouble() ?? 0;
+    final depPanne = (row['total_depense_panne'] as num?)?.toDouble() ?? 0;
+    final totalDep = depVoyage + depPanne;
+    final solde = depot - totalDep;
+    final soldeColor =
+        solde >= 0 ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
+
+    return Container(
+      color: isEven
+          ? Colors.transparent
+          : Theme.of(context).colorScheme.surfaceContainerLowest,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: Row(
+              children: [
+                Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF8B5CF6), Color(0xFF6D28D9)],
+                    ),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Center(
+                    child: Text(
+                      sigle.substring(0, sigle.length.clamp(0, 2)),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(sigle,
+                    style: const TextStyle(fontWeight: FontWeight.w700,
+                        fontSize: 13)),
+              ],
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(fmt.format(depot),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    color: Color(0xFF1D4ED8), fontSize: 13)),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(fmt.format(depVoyage),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    color: Color(0xFF6B7280), fontSize: 13)),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(fmt.format(depPanne),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    color: Color(0xFFD97706), fontSize: 13)),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(fmt.format(totalDep),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    color: Color(0xFF374151), fontSize: 13)),
+          ),
+          Expanded(
+            flex: 3,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Icon(
+                  solde >= 0
+                      ? Icons.trending_up_rounded
+                      : Icons.trending_down_rounded,
+                  size: 14,
+                  color: soldeColor,
+                ),
+                const SizedBox(width: 3),
+                Text(
+                  fmt.format(solde),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: soldeColor,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
