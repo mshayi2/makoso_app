@@ -43,7 +43,8 @@ class _ClientsScreenState extends State<ClientsScreen> {
 
   Future<void> _loadClients() async {
     setState(() => _isLoading = true);
-    final list = await AppDatabase.instance.getAllClients();
+    final typeClient = widget.company == AppCompany.makoso ? 'makoso' : 'marina';
+    final list = await AppDatabase.instance.getClientsByType(typeClient);
     if (mounted) setState(() { _clients = list; _isLoading = false; });
   }
 

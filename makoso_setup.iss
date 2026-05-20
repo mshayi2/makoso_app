@@ -5,7 +5,7 @@
 ; ============================================================
 
 #define AppName      "Makoso"
-#define AppVersion   "1.1.1"
+#define AppVersion   "1.1.2"
 #define AppPublisher "Menji Group"
 #define AppURL       "https://makoso.menji-group.com"
 #define AppExeName   "makoso_app.exe"
