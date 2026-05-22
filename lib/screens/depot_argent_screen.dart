@@ -12,10 +12,12 @@ const List<String> _kDepotLibellesMakoso = [
   'Paiement 30% draft',
   'Paiement 30% Pointe Noir',
   'Paiement 40% Matadi',
+  'Paiement 100% du montant',
 ];
 
 const List<String> _kDepotLibellesMarian = [
   'Voyage camion',
+  'Retour Camion avec Charge',
 ];
 
 class DepotArgentScreen extends StatefulWidget {
@@ -64,7 +66,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
       : 'depot_argent_makoso';
 
   String get _sourceFieldLabel {
-    if (_selectedLibelle == 'Voyage camion') return 'Voyage *';
+    if (_selectedLibelle == 'Voyage camion' || _selectedLibelle == 'Retour Camion avec Charge') return 'Voyage *';
     if (_selectedLibelle != null && _selectedLibelle!.isNotEmpty) return 'Dossier *';
     return 'Source *';
   }

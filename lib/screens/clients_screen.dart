@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
 import '../models/client.dart';
+import '../models/utilisateur.dart';
 import 'main_screen.dart' show AppCompany;
 
 class ClientsScreen extends StatefulWidget {
   final AppCompany company;
-  const ClientsScreen({super.key, required this.company});
+  final Utilisateur user;
+  const ClientsScreen({super.key, required this.company, required this.user});
 
   @override
   State<ClientsScreen> createState() => _ClientsScreenState();
@@ -24,6 +26,11 @@ class _ClientsScreenState extends State<ClientsScreen> {
   bool _isSaving = false;
   bool _isLoading = true;
   List<Client> _clients = [];
+
+  bool get _canEdit {
+    final role = widget.user.role ?? '';
+    return role == 'admin' || role == 'opérateur logistique';
+  }
 
   @override
   void initState() {
@@ -81,6 +88,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
   }
 
   Future<void> _save() async {
+    if (!_canEdit) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
     final isEditing = _editingClient != null;
@@ -122,6 +130,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
   }
 
   Future<void> _confirmDelete(Client c) async {
+    if (!_canEdit) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -220,7 +229,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
                         children: [
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: _isSaving ? null : _save,
+                              onPressed: (_canEdit && !_isSaving) ? _save : null,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF1A237E),
                                 foregroundColor: Colors.white,
@@ -321,12 +330,12 @@ class _ClientsScreenState extends State<ClientsScreen> {
                               IconButton(
                                 icon: const Icon(Icons.edit_outlined, color: Color(0xFF1A237E)),
                                 tooltip: 'Modifier',
-                                onPressed: () => _startEdit(c),
+                                onPressed: _canEdit ? () => _startEdit(c) : null,
                               ),
                               IconButton(
                                 icon: const Icon(Icons.delete_outline, color: Colors.red),
                                 tooltip: 'Supprimer',
-                                onPressed: () => _confirmDelete(c),
+                                onPressed: _canEdit ? () => _confirmDelete(c) : null,
                               ),
                             ],
                           )),

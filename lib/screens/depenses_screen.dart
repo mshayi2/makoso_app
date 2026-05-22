@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../database/app_database.dart';
 import '../models/depot_argent.dart';
 import '../models/depense.dart';
+import '../models/dossier.dart';
 import '../models/monnaie.dart';
 import '../models/utilisateur.dart';
 import 'main_screen.dart' show AppCompany;
@@ -53,6 +54,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
   String? _selectedMonnaieUuid;
   String _selectedStatusFilter = 'Toutes';
   String _selectedValidationStatus = 'Automatique';
+  bool _dejaExecuter = false;
+  String? _selectedDossierUuid;
 
   // MARINA Trans extra fields
   String? _selectedTypeDepense;
@@ -61,6 +64,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
 
   List<Monnaie> _monnaies = [];
   List<DepenseRecord> _depenses = [];
+  List<Dossier> _dossiers = [];
 
   String get _depenseTable => widget.company == AppCompany.marian
       ? 'depenses_marina_trans'
@@ -90,9 +94,13 @@ class _DepensesScreenState extends State<DepensesScreen> {
       _isGridLoading = true;
     });
     final monnaies = await AppDatabase.instance.getAllMonnaies();
+    final dossiers = widget.company == AppCompany.makoso
+        ? await AppDatabase.instance.getActiveDossiers()
+        : <Dossier>[];
     if (!mounted) return;
     setState(() {
       _monnaies = monnaies;
+      _dossiers = dossiers;
       _isLoading = false;
     });
     await _loadGrid(resetPage: true);
@@ -144,9 +152,9 @@ class _DepensesScreenState extends State<DepensesScreen> {
       return;
     }
     List<DepotSourceOption> options;
-    if (type == 'Voyage camion') {
+    if (type == 'Voyage Camion') {
       options = await AppDatabase.instance.getDepotSourceOptions(
-        'Voyage camion',
+        'Voyage Camion',
         includeSourceUuid: includeOrigineUuid,
       );
     } else {
@@ -433,6 +441,36 @@ class _DepensesScreenState extends State<DepensesScreen> {
         return;
       }
     }
+    // Gestionnaire Kinshasa restriction: can only validate < 1000 USD
+    if (widget.user.role == 'gestionnaire kinshasa' &&
+        validationDecision.valide > 0 &&
+        _selectedValidationStatus == 'Valid\u00e9e') {
+      final monnaie = _selectedMonnaie();
+      if (monnaie == null || !_isUsdCurrency(monnaie)) {
+        setState(() => _isSaving = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Gestionnaire Kinshasa ne peut valider que les d\u00e9penses en USD inf\u00e9rieures \u00e0 1000 USD.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+      if (montant >= _autoValidationUsdThreshold) {
+        setState(() => _isSaving = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Gestionnaire Kinshasa ne peut valider que les d\u00e9penses inf\u00e9rieures \u00e0 1000 USD.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+    }
     try {
       if (isEditing) {
         await AppDatabase.instance.updateDepense(
@@ -448,6 +486,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
           validateurUuid: validationDecision.validateurUuid,
           typeDepense: widget.company == AppCompany.marian ? _selectedTypeDepense : null,
           origineUuid: widget.company == AppCompany.marian ? _selectedOrigineUuid : null,
+          dejaExecuter: _dejaExecuter ? 1 : 0,
+          dossierUuid: widget.company == AppCompany.makoso ? _selectedDossierUuid : null,
         );
       } else {
         await AppDatabase.instance.createDepense(
@@ -462,6 +502,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
           validateurUuid: validationDecision.validateurUuid,
           typeDepense: widget.company == AppCompany.marian ? _selectedTypeDepense : null,
           origineUuid: widget.company == AppCompany.marian ? _selectedOrigineUuid : null,
+          dejaExecuter: _dejaExecuter ? 1 : 0,
+          dossierUuid: widget.company == AppCompany.makoso ? _selectedDossierUuid : null,
         );
       }
 
@@ -494,6 +536,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
       _observationCtrl.text = depense.observation ?? '';
       _selectedMonnaieUuid = depense.monnaieUuid;
       _selectedValidationStatus = depense.validationStatus;
+      _dejaExecuter = depense.isDejaExecuter;
+      _selectedDossierUuid = depense.dossierUuid;
       if (widget.company == AppCompany.marian) {
         _selectedTypeDepense = depense.typeDepense;
         _selectedOrigineUuid = depense.origineUuid;
@@ -511,6 +555,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
       _editingDepense = null;
       _selectedMonnaieUuid = null;
       _selectedValidationStatus = 'Automatique';
+      _dejaExecuter = false;
+      _selectedDossierUuid = null;
       if (widget.company == AppCompany.marian) {
         _selectedTypeDepense = null;
         _selectedOrigineUuid = null;
@@ -591,12 +637,20 @@ class _DepensesScreenState extends State<DepensesScreen> {
                   ),
                   items: const [
                     DropdownMenuItem(
-                      value: 'Voyage camion',
-                      child: Text('Voyage camion'),
+                      value: 'Voyage Camion',
+                      child: Text('Voyage Camion'),
                     ),
                     DropdownMenuItem(
-                      value: 'Panne ou entretien camion',
-                      child: Text('Panne ou entretien camion'),
+                      value: 'Retour Camion avec Charge',
+                      child: Text('Retour Camion avec Charge'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Panne Camion',
+                      child: Text('Panne Camion'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'Entretien Camion',
+                      child: Text('Entretien Camion'),
                     ),
                   ],
                   validator: (v) => v == null ? 'Champ requis' : null,
@@ -615,12 +669,12 @@ class _DepensesScreenState extends State<DepensesScreen> {
                 child: DropdownButtonFormField<String>(
                   value: _selectedOrigineUuid,
                   decoration: InputDecoration(
-                    labelText: _selectedTypeDepense == 'Voyage camion'
+                    labelText: _selectedTypeDepense == 'Voyage Camion'
                         ? 'Voyage *'
                         : 'Camion *',
                     border: const OutlineInputBorder(),
                     prefixIcon: Icon(
-                      _selectedTypeDepense == 'Voyage camion'
+                      _selectedTypeDepense == 'Voyage Camion'
                           ? Icons.local_shipping_outlined
                           : Icons.directions_car_outlined,
                     ),
@@ -719,7 +773,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
                 items: _kDepenseFormStatuses
                     .map((status) => DropdownMenuItem(value: status, child: Text(status)))
                     .toList(),
-                onChanged: widget.user.role == 'caissier'
+                onChanged: (widget.user.role == 'caissier' || widget.user.role == 'gestionnaire matadi')
                     ? null
                     : (value) {
                         if (value == null) {
@@ -747,6 +801,48 @@ class _DepensesScreenState extends State<DepensesScreen> {
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.notes_outlined),
                 ),
+              ),
+            ),
+            if (widget.company == AppCompany.makoso)
+              SizedBox(
+                width: fieldWidth,
+                child: DropdownButtonFormField<String>(
+                  value: _dossiers.any((d) => d.uuid == _selectedDossierUuid)
+                      ? _selectedDossierUuid
+                      : null,
+                  decoration: const InputDecoration(
+                    labelText: 'Dossier',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.folder_outlined),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String>(value: null, child: Text('— Aucun —')),
+                    ..._dossiers.map((d) => DropdownMenuItem(
+                          value: d.uuid,
+                          child: Text(d.numeroBl ?? d.uuid),
+                        )),
+                  ],
+                  onChanged: (v) => setState(() => _selectedDossierUuid = v),
+                ),
+              ),
+            SizedBox(
+              width: fieldWidth,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Checkbox(
+                        value: _dejaExecuter,
+                        onChanged: (v) => setState(() => _dejaExecuter = v ?? false),
+                      ),
+                      const Text('Déjà exécutée'),
+                    ],
+                  ),
+                ],
               ),
             ),
             SizedBox(
@@ -939,6 +1035,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
                         DataColumn(label: Text('Montant')),
                         DataColumn(label: Text('Monnaie')),
                         DataColumn(label: Text('Statut')),
+                        DataColumn(label: Text('Exécutée')),
                         DataColumn(label: Text('Validateur')),
                         DataColumn(label: Text('Observation')),
                         DataColumn(label: Text('Actions')),
@@ -947,7 +1044,11 @@ class _DepensesScreenState extends State<DepensesScreen> {
                         final isEditing = _editingDepense?.uuid == depense.uuid;
                         return DataRow(
                           color: WidgetStateProperty.resolveWith(
-                            (states) => isEditing ? const Color(0xFF1A237E).withValues(alpha: 0.06) : null,
+                            (states) {
+                              if (isEditing) return const Color(0xFF1A237E).withValues(alpha: 0.06);
+                              if (depense.isDejaExecuter) return Colors.green.withValues(alpha: 0.07);
+                              return null;
+                            },
                           ),
                           cells: [
                             DataCell(Text(_formatDate(depense.date))),
@@ -971,6 +1072,11 @@ class _DepensesScreenState extends State<DepensesScreen> {
                                   ),
                                 ),
                               ),
+                            ),
+                            DataCell(
+                              depense.isDejaExecuter
+                                  ? const Icon(Icons.check_circle_outline, color: Colors.green, size: 18)
+                                  : const Icon(Icons.radio_button_unchecked, color: Colors.grey, size: 18),
                             ),
                             DataCell(Text(depense.validateurNom ?? '-')),
                             DataCell(Text(depense.observation ?? '-')),

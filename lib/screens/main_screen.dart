@@ -88,7 +88,9 @@ class _MainScreenState extends State<MainScreen> {
             ? (widget.company == AppCompany.marian
                 ? _NavOption.voyages
                 : _NavOption.dossiers)
-            : _NavOption.tableauDeBord;
+            : widget.user.role == 'gestionnaire matadi'
+                ? _NavOption.voyages
+                : _NavOption.tableauDeBord;
     _screenVersions = {
       for (final option in _NavOption.values) option: 0,
     };
@@ -218,7 +220,7 @@ class _MainScreenState extends State<MainScreen> {
       _NavOption.depotArgent => DepotArgentScreen(user: widget.user, company: widget.company),
       _NavOption.depenses => DepensesScreen(user: widget.user, company: widget.company),
       _NavOption.utilisateurs => const UtilisateursScreen(),
-      _NavOption.clients => ClientsScreen(company: widget.company),
+      _NavOption.clients => ClientsScreen(company: widget.company, user: widget.user),
       _NavOption.camions => const CamionsScreen(),
       _NavOption.chauffeursConvoyeurs => const ChauffeursConvoyeursScreen(),
       _NavOption.voyages => VoyagesScreen(user: widget.user, company: widget.company),
@@ -552,10 +554,24 @@ class _MainScreenState extends State<MainScreen> {
                           return item.option == _NavOption.depotArgent ||
                               item.option == _NavOption.depenses;
                         }
+                        if (role == 'gestionnaire matadi') {
+                          // marian only: voyages and depenses
+                          return item.option == _NavOption.voyages ||
+                              item.option == _NavOption.depenses;
+                        }
+                        if (role == 'gestionnaire kinshasa') {
+                          // marian only: chauffeursConvoyeurs, clients, depotArgent, voyages, depenses
+                          return item.option == _NavOption.chauffeursConvoyeurs ||
+                              item.option == _NavOption.clients ||
+                              item.option == _NavOption.depotArgent ||
+                              item.option == _NavOption.voyages ||
+                              item.option == _NavOption.depenses;
+                        }
                         if (role == 'opérateur logistique') {
                           if (isMakoso) {
                             return item.option == _NavOption.dossiers ||
-                                item.option == _NavOption.clients;
+                                item.option == _NavOption.clients ||
+                                item.option == _NavOption.conteneursMakoso;
                           } else {
                             return item.option == _NavOption.voyages ||
                                 item.option == _NavOption.clients ||

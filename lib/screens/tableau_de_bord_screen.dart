@@ -35,6 +35,9 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
   // Camions dashboard (Marina Trans)
   List<Map<String, Object?>> _camionRows = [];
 
+  // Retour camion avec charge (Marina Trans)
+  List<Map<String, Object?>> _retourCamionRows = [];
+
   @override
   void initState() {
     super.initState();
@@ -54,6 +57,7 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
       if (widget.showVoyages) db.getDashboardVoyageStats(),
       if (!isMarian) db.getDossiersEnRetard(),
       if (isMarian) db.getCamionsDashboardRows(),
+      if (isMarian) db.getRetourCamionDashboard(),
     ];
     final results = await Future.wait(futures);
 
@@ -70,9 +74,11 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
         // index 3: dossiersEnRetard (if !isMarian) OR camionsDashboard (if isMarian)
         _dossiersEnRetard = isMarian ? [] : results[3] as List<Map<String, Object?>>;
         _camionRows = isMarian ? results[3] as List<Map<String, Object?>> : [];
+        _retourCamionRows = isMarian ? results[4] as List<Map<String, Object?>> : [];
       } else {
         _dossiersEnRetard = isMarian ? [] : results[2] as List<Map<String, Object?>>;
-        _camionRows = [];
+        _camionRows = isMarian ? results[2] as List<Map<String, Object?>> : [];
+        _retourCamionRows = isMarian ? results[3] as List<Map<String, Object?>> : [];
       }
       _loading = false;
     });
@@ -151,6 +157,17 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
                             )
                           else
                             _CamionDashboardSection(rows: _camionRows),
+                          const SizedBox(height: 28),
+
+                          // ── Retour camion avec charge ─────────────────
+                          _SectionHeader(
+                            icon: Icons.replay_rounded,
+                            label: 'Situation Retour Camion avec Charge',
+                            iconColor: const Color(0xFFF59E0B),
+                            badgeColor: const Color(0xFFFFFBEB),
+                          ),
+                          const SizedBox(height: 12),
+                          _RetourCamionTable(rows: _retourCamionRows),
                           const SizedBox(height: 28),
                         ],
 
@@ -1006,8 +1023,9 @@ class _CamionDashboardCard extends StatelessWidget {
     final activeRows = monnaieRows.where((r) {
       final depot = (r['total_depot'] as num?)?.toDouble() ?? 0;
       final depV = (r['total_depense_voyage'] as num?)?.toDouble() ?? 0;
+      final depR = (r['total_depense_retour'] as num?)?.toDouble() ?? 0;
       final depP = (r['total_depense_panne'] as num?)?.toDouble() ?? 0;
-      return depot != 0 || depV != 0 || depP != 0;
+      return depot != 0 || depV != 0 || depR != 0 || depP != 0;
     }).toList();
 
     return Container(
@@ -1126,6 +1144,7 @@ class _CamionDashboardCard extends StatelessWidget {
                   _colHeader(cs, 'MONNAIE', flex: 2),
                   _colHeader(cs, 'DÉPÔTS', flex: 3, right: true),
                   _colHeader(cs, 'DÉP. VOYAGE', flex: 3, right: true),
+                  _colHeader(cs, 'DÉP. RETOUR', flex: 3, right: true),
                   _colHeader(cs, 'DÉP. PANNE', flex: 3, right: true),
                   _colHeader(cs, 'TOTAL DÉP.', flex: 3, right: true),
                   _colHeader(cs, 'SOLDE', flex: 3, right: true),
@@ -1182,8 +1201,9 @@ class _CamionMonnaieRow extends StatelessWidget {
     final sigle = (row['sigle'] as String?) ?? (row['monnaie_nom'] as String?) ?? '?';
     final depot = (row['total_depot'] as num?)?.toDouble() ?? 0;
     final depVoyage = (row['total_depense_voyage'] as num?)?.toDouble() ?? 0;
+    final depRetour = (row['total_depense_retour'] as num?)?.toDouble() ?? 0;
     final depPanne = (row['total_depense_panne'] as num?)?.toDouble() ?? 0;
-    final totalDep = depVoyage + depPanne;
+    final totalDep = depVoyage + depRetour + depPanne;
     final solde = depot - totalDep;
     final soldeColor =
         solde >= 0 ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
@@ -1242,6 +1262,13 @@ class _CamionMonnaieRow extends StatelessWidget {
           ),
           Expanded(
             flex: 3,
+            child: Text(fmt.format(depRetour),
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    color: Color(0xFF0891B2), fontSize: 13)),
+          ),
+          Expanded(
+            flex: 3,
             child: Text(fmt.format(depPanne),
                 textAlign: TextAlign.right,
                 style: const TextStyle(
@@ -1277,6 +1304,132 @@ class _CamionMonnaieRow extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Retour Camion avec Charge table ------------------------------------------
+
+class _RetourCamionTable extends StatelessWidget {
+  final List<Map<String, Object?>> rows;
+  const _RetourCamionTable({required this.rows});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final fmt = NumberFormat('#,##0.00', 'fr_FR');
+    final activeRows = rows.where((r) {
+      final depot = (r['total_depot'] as num?)?.toDouble() ?? 0;
+      final dep = (r['total_depense'] as num?)?.toDouble() ?? 0;
+      return depot != 0 || dep != 0;
+    }).toList();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(10),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: activeRows.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Aucun mouvement Retour Camion avec Charge enregistre.',
+                style: TextStyle(fontStyle: FontStyle.italic),
+              ),
+            )
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      _retourColHeader(cs, 'MONNAIE', flex: 2),
+                      _retourColHeader(cs, 'DEPOTS', flex: 3, right: true),
+                      _retourColHeader(cs, 'DEPENSES', flex: 3, right: true),
+                      _retourColHeader(cs, 'SOLDE', flex: 3, right: true),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                for (int i = 0; i < activeRows.length; i++) ...[
+                  _RetourCamionRow(row: activeRows[i], fmt: fmt, isEven: i.isEven),
+                  if (i < activeRows.length - 1) const Divider(height: 1, indent: 16),
+                ],
+                const SizedBox(height: 4),
+              ],
+            ),
+    );
+  }
+
+  Widget _retourColHeader(ColorScheme cs, String text, {required int flex, bool right = false}) {
+    return Expanded(
+      flex: flex,
+      child: Text(
+        text,
+        textAlign: right ? TextAlign.right : TextAlign.left,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.4,
+          color: cs.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _RetourCamionRow extends StatelessWidget {
+  final Map<String, Object?> row;
+  final NumberFormat fmt;
+  final bool isEven;
+
+  const _RetourCamionRow({required this.row, required this.fmt, required this.isEven});
+
+  @override
+  Widget build(BuildContext context) {
+    final sigle = (row['sigle'] as String?) ?? (row['monnaie_nom'] as String?) ?? '?';
+    final depot = (row['total_depot'] as num?)?.toDouble() ?? 0;
+    final dep = (row['total_depense'] as num?)?.toDouble() ?? 0;
+    final solde = depot - dep;
+    final soldeColor = solde >= 0 ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
+
+    return Container(
+      color: isEven ? Colors.transparent : Theme.of(context).colorScheme.surfaceContainerLowest,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(sigle, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(fmt.format(depot),
+                textAlign: TextAlign.right,
+                style: const TextStyle(color: Color(0xFF1D4ED8), fontSize: 13)),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(fmt.format(dep),
+                textAlign: TextAlign.right,
+                style: const TextStyle(color: Color(0xFF374151), fontSize: 13)),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(fmt.format(solde),
+                textAlign: TextAlign.right,
+                style: TextStyle(fontWeight: FontWeight.bold, color: soldeColor, fontSize: 13)),
           ),
         ],
       ),

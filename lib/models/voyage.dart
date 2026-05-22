@@ -13,6 +13,7 @@ class Voyage {
   final String? chauffeurUuid;
   final String? convoyeurUuid;
   final String? clientUuid;
+  final int valide;
 
   const Voyage({
     required this.uuid,
@@ -29,6 +30,7 @@ class Voyage {
     this.chauffeurUuid,
     this.convoyeurUuid,
     this.clientUuid,
+    this.valide = 0,
   });
 
   factory Voyage.fromMap(Map<String, dynamic> map) {
@@ -47,6 +49,7 @@ class Voyage {
       chauffeurUuid: map['chauffeur_uuid'] as String?,
       convoyeurUuid: map['convoyeur_uuid'] as String?,
       clientUuid: map['client_uuid'] as String?,
+      valide: (map['valide'] as int?) ?? 0,
     );
   }
 }

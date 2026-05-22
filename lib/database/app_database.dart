@@ -20,6 +20,8 @@ import '../models/depense.dart';
 import '../models/detail_conteneur.dart';
 import '../models/dossier.dart';
 import '../models/interchange.dart';
+import '../models/scan_bl.dart';
+import '../models/scan_voyage.dart';
 import '../models/monnaie.dart';
 import '../models/voyage.dart';
 
@@ -42,6 +44,8 @@ class AppDatabase {
     'camions',
     'chauffeurs_convoyeurs',
     'voyages',
+    'scan_bl',
+    'scan_voyage',
   ];
 
   sqflite.Database? _database;
@@ -171,9 +175,11 @@ class AppDatabase {
         date_paiement_40_matadi DATE,
         montant_convenu REAL,
         statut TEXT,
+        type_bl TEXT,
         date_creation TEXT DEFAULT CURRENT_TIMESTAMP
       )
     ''');
+    await _ensureColumn(db, 'dossiers', 'type_bl', 'TEXT');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS conteneurs (
@@ -238,6 +244,18 @@ class AppDatabase {
     await _ensureColumn(db, 'interchange', 'nom_fichier', 'TEXT');
 
     await db.execute('''
+      CREATE TABLE IF NOT EXISTS scan_bl (
+        uuid TEXT PRIMARY KEY,
+        id INTEGER,
+        sync INTEGER DEFAULT 0,
+        dossier_uuid TEXT,
+        scan BLOB,
+        page INTEGER,
+        nom_fichier TEXT
+      )
+    ''');
+
+    await db.execute('''
       CREATE TABLE IF NOT EXISTS depot_argent_makoso (
         uuid TEXT PRIMARY KEY,
         id INTEGER,
@@ -279,7 +297,9 @@ class AppDatabase {
         valide INTEGER,
         date_validation DATE,
         validateur_uuid TEXT,
-        monnaie_uuid TEXT
+        monnaie_uuid TEXT,
+        deja_executer INTEGER DEFAULT 0,
+        dossier_uuid TEXT
       )
     ''');
 
@@ -297,12 +317,16 @@ class AppDatabase {
         validateur_uuid TEXT,
         monnaie_uuid TEXT,
         type_depense TEXT,
-        origine_uuid TEXT
+        origine_uuid TEXT,
+        deja_executer INTEGER DEFAULT 0
       )
     ''');
 
     await _ensureColumn(db, 'depenses_marina_trans', 'type_depense', 'TEXT');
     await _ensureColumn(db, 'depenses_marina_trans', 'origine_uuid', 'TEXT');
+    await _ensureColumn(db, 'depenses_makoso', 'deja_executer', 'INTEGER DEFAULT 0');
+    await _ensureColumn(db, 'depenses_makoso', 'dossier_uuid', 'TEXT');
+    await _ensureColumn(db, 'depenses_marina_trans', 'deja_executer', 'INTEGER DEFAULT 0');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS camions (
@@ -344,10 +368,24 @@ class AppDatabase {
         camion_uuid TEXT,
         chauffeur_uuid TEXT,
         convoyeur_uuid TEXT,
-        client_uuid TEXT
+        client_uuid TEXT,
+        valide INTEGER DEFAULT 0
       )
     ''');
     await _ensureColumn(db, 'voyages', 'client_uuid', 'TEXT');
+    await _ensureColumn(db, 'voyages', 'valide', 'INTEGER DEFAULT 0');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS scan_voyage (
+        uuid TEXT PRIMARY KEY,
+        id INTEGER,
+        sync INTEGER DEFAULT 0,
+        voyage_uuid TEXT,
+        scan BLOB,
+        page INTEGER,
+        nom_fichier TEXT
+      )
+    ''');
 
     await _seedAdminUser(db);
   }
@@ -937,6 +975,7 @@ class AppDatabase {
     String? datePaiement40Matadi,
     double? montantConvenu,
     String? statut,
+    String? typeBl,
   }) async {
     await smartInsert('dossiers', {
       'uuid': const Uuid().v4(),
@@ -952,6 +991,7 @@ class AppDatabase {
       'date_paiement_40_matadi': datePaiement40Matadi,
       'montant_convenu': montantConvenu,
       'statut': statut,
+      'type_bl': typeBl,
     });
   }
 
@@ -969,6 +1009,7 @@ class AppDatabase {
     String? datePaiement40Matadi,
     double? montantConvenu,
     String? statut,
+    String? typeBl,
   }) async {
     await smartUpdate(
       'dossiers',
@@ -985,6 +1026,7 @@ class AppDatabase {
         'date_paiement_40_matadi': datePaiement40Matadi,
         'montant_convenu': montantConvenu,
         'statut': statut,
+        'type_bl': typeBl,
       },
       where: 'uuid = ?',
       whereArgs: [uuid],
@@ -1207,6 +1249,37 @@ class AppDatabase {
     await smartDelete('interchange', where: 'uuid = ?', whereArgs: [uuid]);
   }
 
+  // ── Scan BL CRUD ──────────────────────────────────────────────────────────
+
+  Future<List<ScanBl>> getScanBlByDossier(String dossierUuid) async {
+    final rows = await smartQuery(
+      'scan_bl',
+      where: 'dossier_uuid = ?',
+      whereArgs: [dossierUuid],
+      orderBy: 'page ASC',
+    );
+    return rows.map(ScanBl.fromMap).toList();
+  }
+
+  Future<void> createScanBl({
+    required String dossierUuid,
+    required Uint8List scan,
+    required String nomFichier,
+    int? page,
+  }) async {
+    await smartInsert('scan_bl', {
+      'uuid': const Uuid().v4(),
+      'dossier_uuid': dossierUuid,
+      'scan': scan,
+      'nom_fichier': nomFichier,
+      'page': page,
+    });
+  }
+
+  Future<void> deleteScanBl(String uuid) async {
+    await smartDelete('scan_bl', where: 'uuid = ?', whereArgs: [uuid]);
+  }
+
   void _appendDepotArgentFilters(
     List<String> whereClauses,
     List<Object?> args, {
@@ -1277,7 +1350,7 @@ class AppDatabase {
     String? includeSourceUuid,
   }) async {
     final db = await initialize();
-    final isVoyage = libelle == 'Voyage camion';
+    final isVoyage = libelle == 'Voyage Camion' || libelle == 'Voyage camion' || libelle == 'Retour Camion avec Charge';
     final table = isVoyage ? 'voyages' : 'dossiers';
     final labelColumn = isVoyage ? 'numero_voyage' : 'numero_bl';
 
@@ -1588,6 +1661,8 @@ class AppDatabase {
     String? validateurUuid,
     String? typeDepense,
     String? origineUuid,
+    int? dejaExecuter,
+    String? dossierUuid,
   }) async {
     final hasDuplicate = await _depenseDuplicateExists(
       table: table,
@@ -1610,10 +1685,14 @@ class AppDatabase {
       'date_validation': dateValidation,
       'validateur_uuid': validateurUuid,
       'monnaie_uuid': monnaieUuid,
+      'deja_executer': dejaExecuter ?? 0,
     };
     if (table == 'depenses_marina_trans') {
       row['type_depense'] = typeDepense;
       row['origine_uuid'] = origineUuid;
+    }
+    if (table == 'depenses_makoso') {
+      row['dossier_uuid'] = dossierUuid;
     }
     await smartInsert(table, row);
   }
@@ -1631,6 +1710,8 @@ class AppDatabase {
     String? validateurUuid,
     String? typeDepense,
     String? origineUuid,
+    int? dejaExecuter,
+    String? dossierUuid,
   }) async {
     final hasDuplicate = await _depenseDuplicateExists(
       table: table,
@@ -1653,10 +1734,14 @@ class AppDatabase {
       'date_validation': dateValidation,
       'validateur_uuid': validateurUuid,
       'monnaie_uuid': monnaieUuid,
+      'deja_executer': dejaExecuter ?? 0,
     };
     if (table == 'depenses_marina_trans') {
       row['type_depense'] = typeDepense;
       row['origine_uuid'] = origineUuid;
+    }
+    if (table == 'depenses_makoso') {
+      row['dossier_uuid'] = dossierUuid;
     }
     await smartUpdate(
       table,
@@ -1668,6 +1753,23 @@ class AppDatabase {
 
   Future<void> deleteDepense(String uuid, {required String table}) async {
     await smartDelete(table, where: 'uuid = ?', whereArgs: [uuid]);
+  }
+
+  /// Returns the total validated depenses per dossier_uuid for depenses_makoso.
+  Future<Map<String, double>> getDepenseTotalsByDossier() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT dossier_uuid, SUM(montant) AS total
+      FROM depenses_makoso
+      WHERE id > 0
+        AND dossier_uuid IS NOT NULL
+        AND valide = 1
+      GROUP BY dossier_uuid
+    ''');
+    return {
+      for (final row in rows)
+        row['dossier_uuid'] as String: (row['total'] as num?)?.toDouble() ?? 0.0,
+    };
   }
 
   // ── Monnaies ──────────────────────────────────────────────────────────────
@@ -1696,6 +1798,7 @@ class AppDatabase {
     String? chauffeurUuid,
     String? convoyeurUuid,
     String? clientUuid,
+    int? valide,
   }) async {
     await smartInsert('voyages', {
       'uuid': const Uuid().v4(),
@@ -1710,6 +1813,7 @@ class AppDatabase {
       'chauffeur_uuid': chauffeurUuid,
       'convoyeur_uuid': convoyeurUuid,
       'client_uuid': clientUuid,
+      'valide': valide ?? 0,
     });
   }
 
@@ -1726,6 +1830,7 @@ class AppDatabase {
     String? chauffeurUuid,
     String? convoyeurUuid,
     String? clientUuid,
+    int? valide,
   }) async {
     await smartUpdate(
       'voyages',
@@ -1741,10 +1846,58 @@ class AppDatabase {
         'chauffeur_uuid': chauffeurUuid,
         'convoyeur_uuid': convoyeurUuid,
         'client_uuid': clientUuid,
+        if (valide != null) 'valide': valide,
       },
       where: 'uuid = ?',
       whereArgs: [uuid],
     );
+  }
+
+  Future<String> getNextVoyageNumber() async {
+    final db = await initialize();
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS cnt FROM voyages WHERE id > 0 AND valide = 1',
+    );
+    final count = (result.first['cnt'] as int?) ?? 0;
+    final next = count + 1;
+    return 'V-${next.toString().padLeft(3, '0')}';
+  }
+
+  Future<void> validateVoyage(String uuid, String numeroVoyage) async {
+    final db = await initialize();
+    await db.rawUpdate(
+      'UPDATE voyages SET valide = 1, numero_voyage = ?, sync = CASE WHEN sync > 0 THEN -sync ELSE sync END WHERE uuid = ?',
+      [numeroVoyage, uuid],
+    );
+  }
+
+  Future<List<ScanVoyage>> getScanVoyageByVoyage(String voyageUuid) async {
+    final rows = await smartQuery(
+      'scan_voyage',
+      where: 'voyage_uuid = ?',
+      whereArgs: [voyageUuid],
+      orderBy: 'page ASC',
+    );
+    return rows.map(ScanVoyage.fromMap).toList();
+  }
+
+  Future<void> createScanVoyage({
+    required String voyageUuid,
+    required Uint8List scan,
+    required String nomFichier,
+    int? page,
+  }) async {
+    await smartInsert('scan_voyage', {
+      'uuid': const Uuid().v4(),
+      'voyage_uuid': voyageUuid,
+      'scan': scan,
+      'nom_fichier': nomFichier,
+      'page': page,
+    });
+  }
+
+  Future<void> deleteScanVoyage(String uuid) async {
+    await smartDelete('scan_voyage', where: 'uuid = ?', whereArgs: [uuid]);
   }
 
   Future<void> deleteVoyage(String uuid) async {
@@ -1876,7 +2029,7 @@ class AppDatabase {
           WHERE dep.id > 0
             AND dep.valide = 1
             AND dep.monnaie_uuid = m.uuid
-            AND dep.type_depense = 'Voyage camion'
+            AND dep.type_depense = 'Voyage Camion'
             AND dep.origine_uuid IN (
               SELECT v.uuid FROM voyages v WHERE v.camion_uuid = c.uuid AND v.id > 0
             )
@@ -1887,13 +2040,52 @@ class AppDatabase {
           WHERE dep.id > 0
             AND dep.valide = 1
             AND dep.monnaie_uuid = m.uuid
-            AND dep.type_depense = 'Panne ou entretien camion'
+            AND dep.type_depense = 'Retour Camion avec Charge'
+            AND dep.origine_uuid = c.uuid
+        ), 0) AS total_depense_retour,
+        COALESCE((
+          SELECT SUM(dep.montant)
+          FROM depenses_marina_trans dep
+          WHERE dep.id > 0
+            AND dep.valide = 1
+            AND dep.monnaie_uuid = m.uuid
+            AND dep.type_depense IN ('Panne Camion', 'Entretien Camion')
             AND dep.origine_uuid = c.uuid
         ), 0) AS total_depense_panne
       FROM camions c
       CROSS JOIN monnaies m
       WHERE c.id > 0
       ORDER BY c.marque ASC, c.plaque ASC, m.sigle ASC
+    ''');
+    return rows.toList();
+  }
+
+  /// Returns per-monnaie totals for 'Retour Camion avec Charge':
+  /// sigle, monnaie_nom, total_depot (depots with that libelle), total_depense (validated depenses with that type).
+  Future<List<Map<String, Object?>>> getRetourCamionDashboard() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        m.sigle AS sigle,
+        m.nom   AS monnaie_nom,
+        COALESCE((
+          SELECT SUM(da.montant)
+          FROM depot_argent_marina_trans da
+          WHERE da.id > 0
+            AND da.monnaie_uuid = m.uuid
+            AND da.libelle = 'Retour Camion avec Charge'
+        ), 0) AS total_depot,
+        COALESCE((
+          SELECT SUM(dep.montant)
+          FROM depenses_marina_trans dep
+          WHERE dep.id > 0
+            AND dep.valide = 1
+            AND dep.monnaie_uuid = m.uuid
+            AND dep.type_depense = 'Retour Camion avec Charge'
+        ), 0) AS total_depense
+      FROM monnaies m
+      WHERE m.id > 0
+      ORDER BY m.sigle ASC
     ''');
     return rows.toList();
   }

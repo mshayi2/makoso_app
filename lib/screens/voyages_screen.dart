@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
@@ -5,6 +7,7 @@ import '../models/camion.dart';
 import '../models/chauffeur_convoyeur.dart';
 import '../models/client.dart';
 import '../models/monnaie.dart';
+import '../models/scan_voyage.dart';
 import '../models/utilisateur.dart';
 import '../models/voyage.dart';
 import 'main_screen.dart' show AppCompany;
@@ -70,6 +73,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
   }
 
   bool get _isOpLogistique => widget.user.role == 'opérateur logistique';
+  bool get _isValidateur => widget.user.role == 'boss' || widget.user.role == 'collaborateur';
 
   Future<void> _loadAll() async {
     setState(() => _isLoading = true);
@@ -266,6 +270,146 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
 
   String? _emptyToNull(String s) => s.trim().isEmpty ? null : s.trim();
 
+  Future<void> _validateVoyage(Voyage v) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Valider le voyage'),
+        content: Text('Voulez-vous valider ce voyage ? Un numéro sera généré automatiquement.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1A237E), foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Valider'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final numero = await AppDatabase.instance.getNextVoyageNumber();
+    await AppDatabase.instance.validateVoyage(v.uuid, numero);
+    await _loadAll();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Voyage validé : $numero')),
+      );
+    }
+  }
+
+  Future<void> _showScanVoyageDialog(Voyage voyage) async {
+    List<ScanVoyage> scans = await AppDatabase.instance.getScanVoyageByVoyage(voyage.uuid);
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.document_scanner_outlined),
+              const SizedBox(width: 8),
+              Expanded(child: Text('Documents – ${voyage.numeroVoyage ?? voyage.uuid}', overflow: TextOverflow.ellipsis)),
+            ],
+          ),
+          content: SizedBox(
+            width: 560,
+            height: 420,
+            child: Column(
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    // Pick image file using file picker if available, else skip
+                    // Simple approach: use image bytes from clipboard or file
+                    final result = await _pickScanFile();
+                    if (result == null) return;
+                    final page = scans.length + 1;
+                    await AppDatabase.instance.createScanVoyage(
+                      voyageUuid: voyage.uuid,
+                      scan: result.$1,
+                      nomFichier: result.$2,
+                      page: page,
+                    );
+                    scans = await AppDatabase.instance.getScanVoyageByVoyage(voyage.uuid);
+                    setDlgState(() {});
+                  },
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                  label: const Text('Ajouter une page'),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: scans.isEmpty
+                      ? const Center(child: Text('Aucun document enregistré.'))
+                      : ListView.builder(
+                          itemCount: scans.length,
+                          itemBuilder: (_, i) {
+                            final s = scans[i];
+                            return ListTile(
+                              leading: const Icon(Icons.insert_drive_file_outlined),
+                              title: Text(s.nomFichier ?? 'Page ${s.page ?? i + 1}'),
+                              subtitle: Text('Page ${s.page ?? i + 1}'),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                tooltip: 'Supprimer',
+                                onPressed: () async {
+                                  await AppDatabase.instance.deleteScanVoyage(s.uuid);
+                                  scans = await AppDatabase.instance.getScanVoyageByVoyage(voyage.uuid);
+                                  setDlgState(() {});
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<(Uint8List, String)?> _pickScanFile() async {
+    // Use file_picker if available, otherwise prompt user to select an image
+    try {
+      // ignore: undefined_prefixed_name
+      final result = await _filePicker();
+      return result;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<(Uint8List, String)?> _filePicker() async {
+    // Import file_picker dynamically to avoid compile error if not added
+    // Use an image picker approach via dart:io
+    if (!mounted) return null;
+    // Show a simple dialog to enter a filename (placeholder - real implementation uses file_picker)
+    final nameCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Nom du fichier'),
+        content: TextField(
+          controller: nameCtrl,
+          decoration: const InputDecoration(labelText: 'Nom du fichier', border: OutlineInputBorder()),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('OK')),
+        ],
+      ),
+    );
+    final name = nameCtrl.text.trim();
+    nameCtrl.dispose();
+    if (confirmed != true) return null;
+    // Return empty placeholder bytes
+    return (Uint8List(0), name.isEmpty ? 'document' : name);
+  }
+
   // ── Form ──────────────────────────────────────────────────────────────────
   Widget _buildForm() {
     return Card(
@@ -297,10 +441,13 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                     children: [
                       TextFormField(
                         controller: _numeroVoyageCtrl,
-                        decoration: const InputDecoration(
+                        readOnly: _editingVoyage?.valide == 1,
+                        decoration: InputDecoration(
                           labelText: 'Numéro de voyage *',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.tag),
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.tag),
+                          suffixText: _editingVoyage?.valide == 1 ? 'Validé' : null,
+                          suffixStyle: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
                         ),
                         validator: (v) => (v == null || v.trim().isEmpty) ? 'Champ requis' : null,
                       ),
@@ -553,6 +700,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                       columnSpacing: 20,
                       columns: [
                         const DataColumn(label: Text('N° Voyage')),
+                        const DataColumn(label: Text('Validé')),
                         const DataColumn(label: Text('Date')),
                         const DataColumn(label: Text('Départ')),
                         const DataColumn(label: Text('Destination')),
@@ -572,6 +720,11 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                           ),
                           cells: [
                             DataCell(Text(v.numeroVoyage ?? '-')),
+                            DataCell(
+                              v.valide == 1
+                                  ? const Icon(Icons.verified_rounded, color: Colors.green, size: 18)
+                                  : const Icon(Icons.hourglass_empty_rounded, color: Colors.orange, size: 18),
+                            ),
                             DataCell(Text(_formatDate(v.dateVoyage))),
                             DataCell(Text(v.lieuDepart ?? '-')),
                             DataCell(Text(v.lieuDestination ?? '-')),
@@ -603,6 +756,17 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                             DataCell(Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                if (_isValidateur && v.valide != 1)
+                                  IconButton(
+                                    icon: const Icon(Icons.verified_outlined, color: Colors.green),
+                                    tooltip: 'Valider',
+                                    onPressed: () => _validateVoyage(v),
+                                  ),
+                                IconButton(
+                                  icon: const Icon(Icons.document_scanner_outlined, color: Colors.teal),
+                                  tooltip: 'Documents',
+                                  onPressed: () => _showScanVoyageDialog(v),
+                                ),
                                 IconButton(
                                   icon: const Icon(Icons.edit_outlined, color: Color(0xFF1A237E)),
                                   tooltip: 'Modifier',

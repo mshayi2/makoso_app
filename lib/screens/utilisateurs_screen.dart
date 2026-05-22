@@ -9,7 +9,14 @@ const List<String> _kRoles = [
   'collaborateur',
   'opérateur logistique',
   'caissier',
+  'gestionnaire kinshasa',
+  'gestionnaire matadi',
 ];
+
+String _roleDisplayLabel(String role) {
+  if (role == 'collaborateur') return 'Coordonateur';
+  return role;
+}
 
 class UtilisateursScreen extends StatefulWidget {
   const UtilisateursScreen({super.key});
@@ -286,7 +293,7 @@ class _UtilisateursScreenState extends State<UtilisateursScreen> {
                           prefixIcon: Icon(Icons.work_outline),
                         ),
                         items: _kRoles
-                            .map((r) => DropdownMenuItem(value: r, child: Text(r)))
+                            .map((r) => DropdownMenuItem(value: r, child: Text(_roleDisplayLabel(r))))
                             .toList(),
                         onChanged: (v) => setState(() => _selectedRole = v),
                         validator: (v) =>
@@ -452,7 +459,7 @@ class _UtilisateursScreenState extends State<UtilisateursScreen> {
                                         _roleColor(u.role).withValues(alpha: 0.4)),
                               ),
                               child: Text(
-                                u.role ?? '-',
+                                _roleDisplayLabel(u.role ?? '-'),
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: _roleColor(u.role),
@@ -499,6 +506,8 @@ class _UtilisateursScreenState extends State<UtilisateursScreen> {
       'collaborateur' => Colors.teal,
       'opérateur logistique' => Colors.orange,
       'caissier' => Colors.green,
+      'gestionnaire kinshasa' => Colors.cyan,
+      'gestionnaire matadi' => Colors.brown,
       _ => Colors.grey,
     };
   }

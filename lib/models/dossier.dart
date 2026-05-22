@@ -14,6 +14,7 @@ class Dossier {
   final String? datePaiement40Matadi;
   final double? montantConvenu;
   final String? statut;
+  final String? typeBl;
   final String? dateCreation;
 
   const Dossier({
@@ -32,6 +33,7 @@ class Dossier {
     this.datePaiement40Matadi,
     this.montantConvenu,
     this.statut,
+    this.typeBl,
     this.dateCreation,
   });
 
@@ -52,6 +54,7 @@ class Dossier {
       datePaiement40Matadi: m['date_paiement_40_matadi'] as String?,
       montantConvenu: (m['montant_convenu'] as num?)?.toDouble(),
       statut: m['statut'] as String?,
+      typeBl: m['type_bl'] as String?,
       dateCreation: m['date_creation'] as String?,
     );
   }

@@ -9,6 +9,7 @@ import '../models/conteneur.dart';
 import '../models/detail_conteneur.dart';
 import '../models/dossier.dart';
 import '../models/interchange.dart';
+import '../models/scan_bl.dart';
 import '../models/utilisateur.dart';
 
 const List<String> _kStatuts = [
@@ -24,6 +25,12 @@ const List<String> _kDossierStatusFilters = [
   'En cours',
   'Clôturé',
   'Annulé',
+];
+
+const List<String> _kTypesBl = [
+  'Copie du BL',
+  'BL Original',
+  'Message Release',
 ];
 
 const List<String> _kDimensionsConteneur = [
@@ -56,6 +63,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
 
   String? _selectedClientUuid;
   String? _selectedStatut;
+  String? _selectedTypeBl;
   String _selectedStatusFilter = 'Tous';
 
   Dossier? _editingDossier;
@@ -65,6 +73,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
   List<Dossier> _dossiers = [];
   List<Client> _clients = [];
   Map<String, int> _conteneurCounts = {};
+  Map<String, double> _depensesTotals = {};
 
   bool get _isOpLogistique => widget.user.role == 'opérateur logistique';
 
@@ -97,12 +106,14 @@ class _DossiersScreenState extends State<DossiersScreen> {
       AppDatabase.instance.getAllDossiers(),
       AppDatabase.instance.getClientsByType('makoso'),
       AppDatabase.instance.getConteneurCountsByDossier(),
+      AppDatabase.instance.getDepenseTotalsByDossier(),
     ]);
     if (!mounted) return;
     setState(() {
       _dossiers = results[0] as List<Dossier>;
       _clients = results[1] as List<Client>;
       _conteneurCounts = results[2] as Map<String, int>;
+      _depensesTotals = results[3] as Map<String, double>;
       _isLoading = false;
     });
   }
@@ -171,6 +182,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
       _montantCtrl.text = d.montantConvenu != null ? d.montantConvenu.toString() : '';
       _selectedClientUuid = _clients.any((c) => c.uuid == d.clientUuid) ? d.clientUuid : null;
       _selectedStatut = _kStatuts.contains(d.statut) ? d.statut : null;
+      _selectedTypeBl = _kTypesBl.contains(d.typeBl) ? d.typeBl : null;
     });
   }
 
@@ -190,6 +202,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
       _montantCtrl.clear();
       _selectedClientUuid = null;
       _selectedStatut = null;
+      _selectedTypeBl = null;
     });
   }
 
@@ -214,6 +227,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
           datePaiement40Matadi: _n(_datePaiement40MatadictrlCtrl.text),
           montantConvenu: montant,
           statut: _selectedStatut,
+          typeBl: _selectedTypeBl,
         );
       } else {
         await AppDatabase.instance.createDossier(
@@ -229,6 +243,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
           datePaiement40Matadi: _n(_datePaiement40MatadictrlCtrl.text),
           montantConvenu: montant,
           statut: _selectedStatut,
+          typeBl: _selectedTypeBl,
         );
       }
       _cancelEdit();
@@ -1044,6 +1059,270 @@ class _DossiersScreenState extends State<DossiersScreen> {
     }
   }
 
+  // ── Scan BL dialog ────────────────────────────────────────────────────────
+
+  Future<void> _showScanBlDialog(Dossier dossier) async {
+    final pageCtrl = TextEditingController();
+    final nomFichierCtrl = TextEditingController();
+    Uint8List? selectedScanBytes;
+    String? selectedScanName;
+    var scans = await AppDatabase.instance.getScanBlByDossier(dossier.uuid);
+    var isSaving = false;
+
+    try {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (ctx, setDialogState) {
+              Future<void> pickFile() async {
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.any,
+                  allowMultiple: false,
+                  withData: true,
+                );
+                if (result != null && result.files.isNotEmpty) {
+                  final file = result.files.first;
+                  if (file.bytes != null) {
+                    setDialogState(() {
+                      selectedScanBytes = file.bytes;
+                      selectedScanName = file.name;
+                      if (nomFichierCtrl.text.isEmpty) {
+                        nomFichierCtrl.text = file.name;
+                      }
+                    });
+                  }
+                }
+              }
+
+              Future<void> save() async {
+                if (selectedScanBytes == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Veuillez choisir un fichier scan.')),
+                  );
+                  return;
+                }
+                final nomFichier = nomFichierCtrl.text.trim();
+                if (nomFichier.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Le nom de fichier est requis.')),
+                  );
+                  return;
+                }
+                final pageText = pageCtrl.text.trim();
+                final page = pageText.isEmpty ? null : int.tryParse(pageText);
+                if (pageText.isNotEmpty && page == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Le numéro de page est invalide.')),
+                  );
+                  return;
+                }
+                setDialogState(() => isSaving = true);
+                try {
+                  await AppDatabase.instance.createScanBl(
+                    dossierUuid: dossier.uuid,
+                    scan: selectedScanBytes!,
+                    nomFichier: nomFichier,
+                    page: page,
+                  );
+                  pageCtrl.clear();
+                  nomFichierCtrl.clear();
+                  final items = await AppDatabase.instance.getScanBlByDossier(dossier.uuid);
+                  if (!mounted) return;
+                  setDialogState(() {
+                    selectedScanBytes = null;
+                    selectedScanName = null;
+                    scans = items;
+                  });
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+                    );
+                  }
+                } finally {
+                  if (mounted) setDialogState(() => isSaving = false);
+                }
+              }
+
+              Future<void> deleteScan(ScanBl scanItem) async {
+                final confirmed = await showDialog<bool>(
+                  context: ctx,
+                  builder: (c) => AlertDialog(
+                    title: const Text('Supprimer le scan BL'),
+                    content: Text(
+                      'Supprimer le scan page ${scanItem.page ?? '-'} (${scanItem.nomFichier ?? scanItem.uuid}) ?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(c, false),
+                        child: const Text('Annuler'),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => Navigator.pop(c, true),
+                        child: const Text('Supprimer'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed != true) return;
+                await AppDatabase.instance.deleteScanBl(scanItem.uuid);
+                final items = await AppDatabase.instance.getScanBlByDossier(dossier.uuid);
+                if (!mounted) return;
+                setDialogState(() => scans = items);
+              }
+
+              return AlertDialog(
+                title: Text('Scans BL – ${dossier.numeroBl ?? dossier.uuid}'),
+                content: SizedBox(
+                  width: 700,
+                  height: 520,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Card(
+                        color: Colors.blue.shade50,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Ajouter un scan BL',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF1A237E),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: pageCtrl,
+                                      decoration: const InputDecoration(
+                                        labelText: 'N° de page',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.tag),
+                                        isDense: true,
+                                      ),
+                                      keyboardType: TextInputType.number,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    flex: 2,
+                                    child: TextField(
+                                      controller: nomFichierCtrl,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Nom fichier',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.insert_drive_file_outlined),
+                                        isDense: true,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: pickFile,
+                                    icon: const Icon(Icons.attach_file),
+                                    label: Text(
+                                      selectedScanName ?? 'Choisir le fichier scan',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  ElevatedButton.icon(
+                                    onPressed: isSaving ? null : save,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF1A237E),
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    icon: isSaving
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              color: Colors.white,
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(Icons.save_outlined),
+                                    label: const Text('Enregistrer'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Scans (${scans.length})',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A237E),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: scans.isEmpty
+                            ? const Center(child: Text('Aucun scan BL pour ce dossier.'))
+                            : SingleChildScrollView(
+                                child: DataTable(
+                                  headingRowColor: WidgetStateProperty.all(
+                                    const Color(0xFF1A237E).withValues(alpha: 0.08),
+                                  ),
+                                  columns: const [
+                                    DataColumn(label: Text('Page')),
+                                    DataColumn(label: Text('Nom fichier')),
+                                    DataColumn(label: Text('Actions')),
+                                  ],
+                                  rows: scans.map((s) {
+                                    return DataRow(cells: [
+                                      DataCell(Text(s.page?.toString() ?? '-')),
+                                      DataCell(Text(s.nomFichier ?? '-')),
+                                      DataCell(
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                          tooltip: 'Supprimer',
+                                          onPressed: () => deleteScan(s),
+                                        ),
+                                      ),
+                                    ]);
+                                  }).toList(),
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Fermer'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      pageCtrl.dispose();
+      nomFichierCtrl.dispose();
+    }
+  }
+
   // ── Date field helper ──────────────────────────────────────────────────────
   Widget _dateField(String label, TextEditingController ctrl) {
     return TextFormField(
@@ -1137,6 +1416,22 @@ class _DossiersScreenState extends State<DossiersScreen> {
                             .map((s) => DropdownMenuItem(value: s, child: Text(s))),
                       ],
                       onChanged: (v) => setState(() => _selectedStatut = v),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedTypeBl,
+                      decoration: const InputDecoration(
+                        labelText: 'Type BL',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.description_outlined),
+                      ),
+                      items: [
+                        const DropdownMenuItem(value: null, child: Text('— Aucun —')),
+                        ..._kTypesBl.map((t) => DropdownMenuItem(value: t, child: Text(t))),
+                      ],
+                      onChanged: (v) => setState(() => _selectedTypeBl = v),
                     ),
                   ),
                 ],
@@ -1406,11 +1701,33 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                 DataCell(Text(_formatDate(d.datePaiement30Draft))),
                                 DataCell(Text(_formatDate(d.datePaiement30Pn))),
                                 DataCell(Text(_formatDate(d.datePaiement40Matadi))),
-                                DataCell(Text(
-                                  d.montantConvenu != null
-                                      ? d.montantConvenu!.toStringAsFixed(2)
-                                      : '-',
-                                )),
+                                DataCell(Builder(builder: (context) {
+                                  final total = _depensesTotals[d.uuid];
+                                  final overrun = total != null &&
+                                      d.montantConvenu != null &&
+                                      total > d.montantConvenu!;
+                                  return Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        d.montantConvenu != null
+                                            ? d.montantConvenu!.toStringAsFixed(2)
+                                            : '-',
+                                      ),
+                                      if (overrun) ...[
+                                        const SizedBox(width: 4),
+                                        Tooltip(
+                                          message: 'Dépenses (${total!.toStringAsFixed(2)}) dépassent le montant convenu',
+                                          child: const Icon(
+                                            Icons.warning_amber_rounded,
+                                            color: Colors.orange,
+                                            size: 18,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  );
+                                })),
                               ],
                               DataCell(
                                 Row(
@@ -1423,6 +1740,14 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                       ),
                                       tooltip: 'Gérer les conteneurs',
                                       onPressed: () => _showConteneursDialog(d),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.document_scanner_outlined,
+                                        color: Color(0xFF1B5E20),
+                                      ),
+                                      tooltip: 'Scans BL',
+                                      onPressed: () => _showScanBlDialog(d),
                                     ),
                                     IconButton(
                                       icon: const Icon(Icons.edit_outlined, color: Color(0xFF1A237E)),

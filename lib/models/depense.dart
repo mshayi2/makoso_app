@@ -15,6 +15,8 @@ class DepenseRecord {
   final String? validateurNom;
   final String? typeDepense;
   final String? origineUuid;
+  final int? dejaExecuter;
+  final String? dossierUuid;
 
   const DepenseRecord({
     required this.uuid,
@@ -33,9 +35,12 @@ class DepenseRecord {
     this.validateurNom,
     this.typeDepense,
     this.origineUuid,
+    this.dejaExecuter,
+    this.dossierUuid,
   });
 
   int get valideValue => valide ?? 0;
+  bool get isDejaExecuter => (dejaExecuter ?? 0) > 0;
 
   String get validationStatus => valideValue > 0 ? 'Validée' : 'En attente';
 
@@ -63,6 +68,8 @@ class DepenseRecord {
       validateurNom: map['validateur_nom'] as String?,
       typeDepense: map['type_depense'] as String?,
       origineUuid: map['origine_uuid'] as String?,
+      dejaExecuter: (map['deja_executer'] as num?)?.toInt(),
+      dossierUuid: map['dossier_uuid'] as String?,
     );
   }
 }
