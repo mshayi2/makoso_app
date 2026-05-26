@@ -23,6 +23,7 @@ import '../models/interchange.dart';
 import '../models/scan_bl.dart';
 import '../models/scan_voyage.dart';
 import '../models/monnaie.dart';
+import '../models/solde.dart';
 import '../models/voyage.dart';
 
 class AppDatabase {
@@ -46,6 +47,7 @@ class AppDatabase {
     'voyages',
     'scan_bl',
     'scan_voyage',
+    'solde',
   ];
 
   sqflite.Database? _database;
@@ -386,6 +388,22 @@ class AppDatabase {
         nom_fichier TEXT
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS solde (
+        uuid TEXT PRIMARY KEY,
+        id INTEGER,
+        sync INTEGER DEFAULT 0,
+        monnaie_uuid TEXT,
+        montant FLOAT,
+        date_cloture DATE,
+        nom_company TEXT
+      )
+    ''');
+    // await _ensureColumn(db, 'solde', 'monnaie_uuid', 'TEXT');
+    // await _ensureColumn(db, 'solde', 'montant', 'FLOAT');
+    // await _ensureColumn(db, 'solde', 'date_cloture', 'DATE');
+    // await _ensureColumn(db, 'solde', 'nom_company', 'TEXT');
 
     await _seedAdminUser(db);
   }
@@ -1913,8 +1931,21 @@ class AppDatabase {
   Future<List<Map<String, Object?>>> getDashboardFinancialRows({
     required String depotTable,
     required String depenseTable,
+    String? fromDate, // exclude cloture date itself: uses date_paiement > fromDate
+    String? toDate,   // inclusive: uses date_paiement <= toDate
   }) async {
     final db = await initialize();
+
+    final dArgs = <Object?>[];
+    var dCond = '';
+    if (fromDate != null) { dCond += ' AND d.date_paiement > ?'; dArgs.add(fromDate); }
+    if (toDate != null)   { dCond += ' AND d.date_paiement <= ?'; dArgs.add(toDate); }
+
+    final eArgs = <Object?>[];
+    var eCond = '';
+    if (fromDate != null) { eCond += ' AND e.date > ?'; eArgs.add(fromDate); }
+    if (toDate != null)   { eCond += ' AND e.date <= ?'; eArgs.add(toDate); }
+
     final rows = await db.rawQuery('''
       SELECT
         m.uuid        AS monnaie_uuid,
@@ -1923,22 +1954,23 @@ class AppDatabase {
         COALESCE((
           SELECT SUM(d.montant)
           FROM $depotTable d
-          WHERE d.monnaie_uuid = m.uuid
+          WHERE d.monnaie_uuid = m.uuid AND d.id > 0$dCond
         ), 0) AS total_depot,
         COALESCE((
           SELECT SUM(e.montant)
           FROM $depenseTable e
-          WHERE e.monnaie_uuid = m.uuid
-            AND e.valide = 1
+          WHERE e.monnaie_uuid = m.uuid AND e.id > 0
+            AND e.valide = 1$eCond
         ), 0) AS total_depense
       FROM monnaies m
-      WHERE m.uuid IN (
-        SELECT DISTINCT monnaie_uuid FROM $depotTable WHERE monnaie_uuid IS NOT NULL
-        UNION
-        SELECT DISTINCT monnaie_uuid FROM $depenseTable WHERE monnaie_uuid IS NOT NULL
-      )
+      WHERE m.id > 0
+        AND m.uuid IN (
+          SELECT DISTINCT monnaie_uuid FROM $depotTable WHERE monnaie_uuid IS NOT NULL AND id > 0
+          UNION
+          SELECT DISTINCT monnaie_uuid FROM $depenseTable WHERE monnaie_uuid IS NOT NULL AND id > 0
+        )
       ORDER BY m.nom ASC
-    ''');
+    ''', [...dArgs, ...eArgs]);
     return rows.toList();
   }
 
@@ -1996,14 +2028,108 @@ class AppDatabase {
     return rows.toList();
   }
 
+  /// Dossiers dont les paiements sont en souffrance selon trois conditions :
+  /// 1. Statut 'en cours' sans paiement 30% draft suffisant.
+  /// 2. Arrivée PN enregistrée sans paiement 30% PN suffisant.
+  /// 3. Arrivée Matadi enregistrée sans paiement 40% Matadi suffisant.
+  Future<List<Map<String, Object?>>> getDossiersSouffrancePaiement() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT DISTINCT
+        d.uuid,
+        d.numero_bl,
+        d.statut,
+        d.montant_convenu,
+        d.date_arrivee_pn,
+        d.date_arrivee_matadi,
+        d.date_creation,
+        c.nom AS client_nom,
+        CASE WHEN (
+          LOWER(COALESCE(d.statut, '')) = 'en cours'
+          AND COALESCE((
+            SELECT SUM(da.montant) FROM depot_argent_makoso da
+            WHERE da.source_uuid = d.uuid AND da.id > 0
+              AND LOWER(TRIM(da.libelle)) IN ('paiement 30% draft', 'paiement 100% du montant')
+          ), 0) < COALESCE(d.montant_convenu, 0) * 0.3
+        ) THEN 1 ELSE 0 END AS souffrance_draft,
+        CASE WHEN (
+          d.date_arrivee_pn IS NOT NULL AND d.date_arrivee_pn != ''
+          AND COALESCE((
+            SELECT SUM(da.montant) FROM depot_argent_makoso da
+            WHERE da.source_uuid = d.uuid AND da.id > 0
+              AND LOWER(TRIM(da.libelle)) IN ('paiement 30% pointe noir', 'paiement 100% du montant')
+          ), 0) < COALESCE(d.montant_convenu, 0) * 0.3
+        ) THEN 1 ELSE 0 END AS souffrance_pn,
+        CASE WHEN (
+          d.date_arrivee_matadi IS NOT NULL AND d.date_arrivee_matadi != ''
+          AND COALESCE((
+            SELECT SUM(da.montant) FROM depot_argent_makoso da
+            WHERE da.source_uuid = d.uuid AND da.id > 0
+              AND LOWER(TRIM(da.libelle)) IN ('paiement 40% matadi', 'paiement 100% du montant')
+          ), 0) < COALESCE(d.montant_convenu, 0) * 0.4
+        ) THEN 1 ELSE 0 END AS souffrance_matadi
+      FROM dossiers d
+      LEFT JOIN clients c ON c.uuid = d.client_uuid
+      WHERE d.id > 0
+        AND COALESCE(d.montant_convenu, 0) > 0
+        AND LOWER(COALESCE(d.statut, '')) NOT IN ('clôturé', 'cloture', 'annulé', 'annule')
+        AND (
+          (
+            LOWER(COALESCE(d.statut, '')) = 'en cours'
+            AND COALESCE((
+              SELECT SUM(da.montant) FROM depot_argent_makoso da
+              WHERE da.source_uuid = d.uuid AND da.id > 0
+                AND LOWER(TRIM(da.libelle)) IN ('paiement 30% draft', 'paiement 100% du montant')
+            ), 0) < COALESCE(d.montant_convenu, 0) * 0.3
+          )
+          OR (
+            d.date_arrivee_pn IS NOT NULL AND d.date_arrivee_pn != ''
+            AND COALESCE((
+              SELECT SUM(da.montant) FROM depot_argent_makoso da
+              WHERE da.source_uuid = d.uuid AND da.id > 0
+                AND LOWER(TRIM(da.libelle)) IN ('paiement 30% pointe noir', 'paiement 100% du montant')
+            ), 0) < COALESCE(d.montant_convenu, 0) * 0.3
+          )
+          OR (
+            d.date_arrivee_matadi IS NOT NULL AND d.date_arrivee_matadi != ''
+            AND COALESCE((
+              SELECT SUM(da.montant) FROM depot_argent_makoso da
+              WHERE da.source_uuid = d.uuid AND da.id > 0
+                AND LOWER(TRIM(da.libelle)) IN ('paiement 40% matadi', 'paiement 100% du montant')
+            ), 0) < COALESCE(d.montant_convenu, 0) * 0.4
+          )
+        )
+      ORDER BY d.date_creation DESC
+    ''');
+    return rows.toList();
+  }
+
   // ─── Camions dashboard (Marina Trans) ────────────────────────────────────
 
   /// Returns one row per (camion × monnaie) with:
   /// camion_uuid, marque, plaque, modele, nb_voyages,
   /// monnaie_uuid, sigle, monnaie_nom,
   /// total_depot, total_depense_voyage, total_depense_panne.
-  Future<List<Map<String, Object?>>> getCamionsDashboardRows() async {
+  Future<List<Map<String, Object?>>> getCamionsDashboardRows({
+    String? fromDate,
+    String? toDate,
+  }) async {
     final db = await initialize();
+
+    final dArgs = <Object?>[];
+    var dCond = '';
+    if (fromDate != null) { dCond += ' AND da.date_paiement > ?'; dArgs.add(fromDate); }
+    if (toDate != null)   { dCond += ' AND da.date_paiement <= ?'; dArgs.add(toDate); }
+
+    final eArgs = <Object?>[];
+    var eCond = '';
+    if (fromDate != null) { eCond += ' AND dep.date > ?'; eArgs.add(fromDate); }
+    if (toDate != null)   { eCond += ' AND dep.date <= ?'; eArgs.add(toDate); }
+
+    // Args order: total_depot(dArgs), total_depense_voyage(eArgs),
+    //             total_depense_retour(eArgs), total_depense_panne(eArgs)
+    final allArgs = [...dArgs, ...eArgs, ...eArgs, ...eArgs];
+
     final rows = await db.rawQuery('''
       SELECT
         c.uuid        AS camion_uuid,
@@ -2021,7 +2147,7 @@ class AppDatabase {
             AND da.monnaie_uuid = m.uuid
             AND da.source_uuid IN (
               SELECT v.uuid FROM voyages v WHERE v.camion_uuid = c.uuid AND v.id > 0
-            )
+            )$dCond
         ), 0) AS total_depot,
         COALESCE((
           SELECT SUM(dep.montant)
@@ -2032,7 +2158,7 @@ class AppDatabase {
             AND dep.type_depense = 'Voyage Camion'
             AND dep.origine_uuid IN (
               SELECT v.uuid FROM voyages v WHERE v.camion_uuid = c.uuid AND v.id > 0
-            )
+            )$eCond
         ), 0) AS total_depense_voyage,
         COALESCE((
           SELECT SUM(dep.montant)
@@ -2041,7 +2167,7 @@ class AppDatabase {
             AND dep.valide = 1
             AND dep.monnaie_uuid = m.uuid
             AND dep.type_depense = 'Retour Camion avec Charge'
-            AND dep.origine_uuid = c.uuid
+            AND dep.origine_uuid = c.uuid$eCond
         ), 0) AS total_depense_retour,
         COALESCE((
           SELECT SUM(dep.montant)
@@ -2050,20 +2176,185 @@ class AppDatabase {
             AND dep.valide = 1
             AND dep.monnaie_uuid = m.uuid
             AND dep.type_depense IN ('Panne Camion', 'Entretien Camion')
-            AND dep.origine_uuid = c.uuid
+            AND dep.origine_uuid = c.uuid$eCond
         ), 0) AS total_depense_panne
       FROM camions c
       CROSS JOIN monnaies m
       WHERE c.id > 0
       ORDER BY c.marque ASC, c.plaque ASC, m.sigle ASC
-    ''');
+    ''', allArgs);
     return rows.toList();
+  }
+
+  // ── Solde CRUD ────────────────────────────────────────────────────────────
+
+  /// Retourne tous les soldes actifs avec le nom et sigle de la monnaie,
+  /// triés par date_cloture DESC, company ASC.
+  Future<List<Solde>> getAllSoldes() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT s.*, m.nom AS monnaie_nom, m.sigle AS monnaie_sigle
+      FROM solde s
+      LEFT JOIN monnaies m ON m.uuid = s.monnaie_uuid AND m.id > 0
+      WHERE s.id > 0
+      ORDER BY s.nom_company ASC, s.date_cloture DESC, m.sigle ASC
+    ''');
+    return rows.map((r) => Solde.fromMap(Map<String, Object?>.from(r))).toList();
+  }
+
+  /// Insère un solde manuellement.
+  Future<void> createSoldeManuel({
+    required String monnaieUuid,
+    required double montant,
+    required String dateCloture,
+    required String nomCompany,
+  }) async {
+    await smartInsert('solde', {
+      'uuid': const Uuid().v4(),
+      'monnaie_uuid': monnaieUuid,
+      'montant': montant,
+      'date_cloture': dateCloture,
+      'nom_company': nomCompany,
+    });
+  }
+
+  Future<void> deleteSolde(String uuid) async {
+    await smartDelete('solde', where: 'uuid = ?', whereArgs: [uuid]);
+  }
+
+  /// Calcule et insère un solde de clôture pour chaque combinaison
+  /// (company × monnaie) en se basant sur le dernier solde connu.
+  ///
+  /// Formule :  nouveau_solde = dernier_solde
+  ///              + SUM(dépôt argent depuis la dernière date de clôture)
+  ///              - SUM(dépenses validées depuis la dernière date de clôture)
+  ///
+  /// Si aucun solde antérieur n'existe pour la combinaison, toutes les lignes
+  /// jusqu'à aujourd'hui sont agrégées (somme totale).
+  Future<List<Solde>> calculerEtInsererSoldes() async {
+    final db = await initialize();
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+
+    final companies = <String, String>{
+      'makoso': 'MAKOSO Services',
+      'marina_trans': 'MARINA Trans',
+    };
+
+    final monnaiesRows = await db.rawQuery(
+      'SELECT uuid, nom, sigle FROM monnaies WHERE id > 0 ORDER BY sigle ASC',
+    );
+
+    final inserted = <Solde>[];
+
+    for (final entry in companies.entries) {
+      final tableKey = entry.key;
+      final companyLabel = entry.value;
+      final depotTable = 'depot_argent_$tableKey';
+      final depenseTable = 'depenses_$tableKey';
+
+      for (final monnaieRow in monnaiesRows) {
+        final monnaieUuid = monnaieRow['uuid'] as String;
+        final monnaieNom = monnaieRow['nom'] as String;
+        final monnaieSigle = monnaieRow['sigle'] as String?;
+
+        // Dernier solde pour cette combinaison
+        final lastRows = await db.rawQuery('''
+          SELECT montant, date_cloture
+          FROM solde
+          WHERE id > 0
+            AND nom_company = ?
+            AND monnaie_uuid = ?
+          ORDER BY date_cloture DESC
+          LIMIT 1
+        ''', [companyLabel, monnaieUuid]);
+
+        final lastMontant = lastRows.isNotEmpty
+            ? ((lastRows.first['montant'] as num?) ?? 0.0).toDouble()
+            : 0.0;
+        final lastDate = lastRows.isNotEmpty
+            ? lastRows.first['date_cloture'] as String?
+            : null;
+
+        // Somme des dépôts depuis la dernière date (incluse)
+        final depotRows = await db.rawQuery(
+          lastDate != null
+              ? '''
+                SELECT COALESCE(SUM(montant), 0) AS total
+                FROM "$depotTable"
+                WHERE id > 0 AND monnaie_uuid = ? AND date_paiement > ?
+              '''
+              : '''
+                SELECT COALESCE(SUM(montant), 0) AS total
+                FROM "$depotTable"
+                WHERE id > 0 AND monnaie_uuid = ?
+              ''',
+          lastDate != null ? [monnaieUuid, lastDate] : [monnaieUuid],
+        );
+        final sumDepot =
+            ((depotRows.first['total'] as num?) ?? 0.0).toDouble();
+
+        // Somme des dépenses validées depuis la dernière date (incluse)
+        final depenseRows = await db.rawQuery(
+          lastDate != null
+              ? '''
+                SELECT COALESCE(SUM(montant), 0) AS total
+                FROM "$depenseTable"
+                WHERE id > 0 AND monnaie_uuid = ? AND date > ? AND valide = 1
+              '''
+              : '''
+                SELECT COALESCE(SUM(montant), 0) AS total
+                FROM "$depenseTable"
+                WHERE id > 0 AND monnaie_uuid = ? AND valide = 1
+              ''',
+          lastDate != null ? [monnaieUuid, lastDate] : [monnaieUuid],
+        );
+        final sumDepense =
+            ((depenseRows.first['total'] as num?) ?? 0.0).toDouble();
+
+        final nouveauMontant = lastMontant + sumDepot - sumDepense;
+
+        final uuid = const Uuid().v4();
+        await smartInsert('solde', {
+          'uuid': uuid,
+          'monnaie_uuid': monnaieUuid,
+          'montant': nouveauMontant,
+          'date_cloture': today,
+          'nom_company': companyLabel,
+        });
+
+        inserted.add(Solde(
+          uuid: uuid,
+          monnaieUuid: monnaieUuid,
+          montant: nouveauMontant,
+          dateCloture: today,
+          nomCompany: companyLabel,
+          monnaieNom: monnaieNom,
+          monnaieSigle: monnaieSigle,
+        ));
+      }
+    }
+
+    return inserted;
   }
 
   /// Returns per-monnaie totals for 'Retour Camion avec Charge':
   /// sigle, monnaie_nom, total_depot (depots with that libelle), total_depense (validated depenses with that type).
-  Future<List<Map<String, Object?>>> getRetourCamionDashboard() async {
+  Future<List<Map<String, Object?>>> getRetourCamionDashboard({
+    String? fromDate,
+    String? toDate,
+  }) async {
     final db = await initialize();
+
+    final dArgs = <Object?>[];
+    var dCond = '';
+    if (fromDate != null) { dCond += ' AND da.date_paiement > ?'; dArgs.add(fromDate); }
+    if (toDate != null)   { dCond += ' AND da.date_paiement <= ?'; dArgs.add(toDate); }
+
+    final eArgs = <Object?>[];
+    var eCond = '';
+    if (fromDate != null) { eCond += ' AND dep.date > ?'; eArgs.add(fromDate); }
+    if (toDate != null)   { eCond += ' AND dep.date <= ?'; eArgs.add(toDate); }
+
     final rows = await db.rawQuery('''
       SELECT
         m.sigle AS sigle,
@@ -2073,7 +2364,7 @@ class AppDatabase {
           FROM depot_argent_marina_trans da
           WHERE da.id > 0
             AND da.monnaie_uuid = m.uuid
-            AND da.libelle = 'Retour Camion avec Charge'
+            AND da.libelle = 'Retour Camion avec Charge'$dCond
         ), 0) AS total_depot,
         COALESCE((
           SELECT SUM(dep.montant)
@@ -2081,12 +2372,128 @@ class AppDatabase {
           WHERE dep.id > 0
             AND dep.valide = 1
             AND dep.monnaie_uuid = m.uuid
-            AND dep.type_depense = 'Retour Camion avec Charge'
+            AND dep.type_depense = 'Retour Camion avec Charge'$eCond
         ), 0) AS total_depense
       FROM monnaies m
       WHERE m.id > 0
       ORDER BY m.sigle ASC
-    ''');
+    ''', [...dArgs, ...eArgs]);
+    return rows.toList();
+  }
+
+  // ─── Période / solde reporté ──────────────────────────────────────────────
+
+  /// Retourne toutes les dates de clôture distinctes pour une company (ordre ASC).
+  Future<List<String>> getClotureDatesForCompany(String nomCompany) async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT DISTINCT date_cloture
+      FROM solde
+      WHERE id > 0 AND nom_company = ? AND date_cloture IS NOT NULL
+      ORDER BY date_cloture ASC
+    ''', [nomCompany]);
+    return rows.map((r) => r['date_cloture'] as String).toList();
+  }
+
+  /// Retourne le solde reporté (dernier solde de clôture) par monnaie pour une company.
+  /// Si [avantStricte] est fourni, ne prend que les clôtures dont la date < avantStricte.
+  /// Si null, prend la dernière clôture toutes dates confondues.
+  Future<List<Map<String, Object?>>> getSoldeReporteParMonnaie(
+    String nomCompany, {
+    String? avantStricte,
+  }) async {
+    final db = await initialize();
+    final dateWhere = avantStricte != null ? 'AND date_cloture < ?' : '';
+    final args = avantStricte != null ? [nomCompany, avantStricte] : [nomCompany];
+
+    final maxRows = await db.rawQuery('''
+      SELECT monnaie_uuid, MAX(date_cloture) AS max_date
+      FROM solde
+      WHERE id > 0 AND nom_company = ? $dateWhere
+      GROUP BY monnaie_uuid
+    ''', args);
+
+    if (maxRows.isEmpty) return [];
+
+    final results = <Map<String, Object?>>[];
+    for (final mr in maxRows) {
+      final monnaieUuid = mr['monnaie_uuid'] as String?;
+      final maxDate = mr['max_date'] as String?;
+      if (monnaieUuid == null || maxDate == null) continue;
+      final soldeRows = await db.rawQuery('''
+        SELECT s.monnaie_uuid, s.montant, s.date_cloture,
+               m.nom AS monnaie_nom, m.sigle AS monnaie_sigle
+        FROM solde s
+        LEFT JOIN monnaies m ON m.uuid = s.monnaie_uuid AND m.id > 0
+        WHERE s.id > 0 AND s.nom_company = ?
+          AND s.monnaie_uuid = ? AND s.date_cloture = ?
+        LIMIT 1
+      ''', [nomCompany, monnaieUuid, maxDate]);
+      results.addAll(soldeRows);
+    }
+    return results;
+  }
+
+  /// Rapport Makoso : totaux dépôts/dépenses par (dossier × monnaie)
+  /// pour une période donnée. Retourne uniquement les combinaisons actives.
+  Future<List<Map<String, Object?>>> getRapportMakosoParDossier({
+    String? fromDate,
+    String? toDate,
+  }) async {
+    final db = await initialize();
+
+    final dArgs = <Object?>[];
+    var dCond = '';
+    if (fromDate != null) { dCond += ' AND da.date_paiement > ?'; dArgs.add(fromDate); }
+    if (toDate != null)   { dCond += ' AND da.date_paiement <= ?'; dArgs.add(toDate); }
+
+    final eArgs = <Object?>[];
+    var eCond = '';
+    if (fromDate != null) { eCond += ' AND dep.date > ?'; eArgs.add(fromDate); }
+    if (toDate != null)   { eCond += ' AND dep.date <= ?'; eArgs.add(toDate); }
+
+    // Arg order: total_depot(dArgs), total_depense(eArgs), EXISTS depot(dArgs), EXISTS depense(eArgs)
+    final allArgs = [...dArgs, ...eArgs, ...dArgs, ...eArgs];
+
+    final rows = await db.rawQuery('''
+      SELECT
+        d.uuid        AS dossier_uuid,
+        d.numero_bl,
+        d.statut,
+        d.montant_convenu,
+        d.date_creation,
+        c.nom         AS client_nom,
+        m.uuid        AS monnaie_uuid,
+        m.sigle       AS monnaie_sigle,
+        m.nom         AS monnaie_nom,
+        COALESCE((
+          SELECT SUM(da.montant)
+          FROM depot_argent_makoso da
+          WHERE da.source_uuid = d.uuid AND da.id > 0 AND da.monnaie_uuid = m.uuid$dCond
+        ), 0) AS total_depot,
+        COALESCE((
+          SELECT SUM(dep.montant)
+          FROM depenses_makoso dep
+          WHERE dep.dossier_uuid = d.uuid AND dep.id > 0 AND dep.valide = 1
+            AND dep.monnaie_uuid = m.uuid$eCond
+        ), 0) AS total_depense
+      FROM dossiers d
+      LEFT JOIN clients c ON c.uuid = d.client_uuid
+      CROSS JOIN monnaies m
+      WHERE d.id > 0 AND m.id > 0
+        AND (
+          EXISTS (
+            SELECT 1 FROM depot_argent_makoso da
+            WHERE da.source_uuid = d.uuid AND da.id > 0 AND da.monnaie_uuid = m.uuid$dCond
+          )
+          OR EXISTS (
+            SELECT 1 FROM depenses_makoso dep
+            WHERE dep.dossier_uuid = d.uuid AND dep.id > 0 AND dep.valide = 1
+              AND dep.monnaie_uuid = m.uuid$eCond
+          )
+        )
+      ORDER BY d.date_creation ASC, d.numero_bl ASC, m.sigle ASC
+    ''', allArgs);
     return rows.toList();
   }
 }

@@ -8,11 +8,14 @@ import '../services/sync_service.dart';
 import 'camions_screen.dart';
 import 'chauffeurs_convoyeurs_screen.dart';
 import 'clients_screen.dart';
+import 'cloture_screen.dart';
 import 'conteneurs_makoso_screen.dart';
 import 'depot_argent_screen.dart';
 import 'depenses_screen.dart';
 import 'dossiers_screen.dart';
 import 'login_screen.dart';
+import 'rapport_mensuel_makoso_screen.dart';
+import 'rapport_mensuel_marina_trans_screen.dart';
 import 'tableau_de_bord_screen.dart';
 import 'utilisateurs_screen.dart';
 import 'voyages_screen.dart';
@@ -30,6 +33,8 @@ enum _NavOption {
   chauffeursConvoyeurs,
   camions,
   utilisateurs,
+  cloture,
+  rapportMensuel,
 }
 
 class _NavItem {
@@ -50,6 +55,8 @@ const _navItems = [
   _NavItem(_NavOption.chauffeursConvoyeurs, Icons.drive_eta_outlined, 'Chauffeurs / Convoyeurs'),
   _NavItem(_NavOption.camions, Icons.airport_shuttle_outlined, 'Camions'),
   _NavItem(_NavOption.utilisateurs, Icons.manage_accounts_outlined, 'Utilisateurs'),
+  _NavItem(_NavOption.cloture, Icons.lock_clock_outlined, 'Clôture'),
+  _NavItem(_NavOption.rapportMensuel, Icons.bar_chart_outlined, 'Rapport mensuel'),
 ];
 
 class MainScreen extends StatefulWidget {
@@ -226,6 +233,10 @@ class _MainScreenState extends State<MainScreen> {
       _NavOption.voyages => VoyagesScreen(user: widget.user, company: widget.company),
       _NavOption.dossiers => DossiersScreen(user: widget.user),
       _NavOption.conteneursMakoso => ConteneursMakosoScreen(user: widget.user),
+      _NavOption.cloture => ClotureScreen(company: widget.company),
+      _NavOption.rapportMensuel => widget.company == AppCompany.makoso
+          ? const RapportMensuelMakosoScreen()
+          : const RapportMensuelMarinaTransScreen(),
     };
 
     return KeyedSubtree(
@@ -526,7 +537,7 @@ class _MainScreenState extends State<MainScreen> {
                       children: _navItems.where((item) {
                         // 1. Filter by company
                         final isMakoso = widget.company == AppCompany.makoso;
-                        const makosOptions = {
+                                const makosOptions = {
                           _NavOption.tableauDeBord,
                           _NavOption.depotArgent,
                           _NavOption.depenses,
@@ -534,6 +545,8 @@ class _MainScreenState extends State<MainScreen> {
                           _NavOption.conteneursMakoso,
                           _NavOption.clients,
                           _NavOption.utilisateurs,
+                          _NavOption.cloture,
+                          _NavOption.rapportMensuel,
                         };
                         const marianOptions = {
                           _NavOption.tableauDeBord,
@@ -544,6 +557,8 @@ class _MainScreenState extends State<MainScreen> {
                           _NavOption.chauffeursConvoyeurs,
                           _NavOption.camions,
                           _NavOption.utilisateurs,
+                          _NavOption.cloture,
+                          _NavOption.rapportMensuel,
                         };
                         if (isMakoso && !makosOptions.contains(item.option)) return false;
                         if (!isMakoso && !marianOptions.contains(item.option)) return false;
@@ -581,6 +596,13 @@ class _MainScreenState extends State<MainScreen> {
                         }
                         if (item.option == _NavOption.utilisateurs) {
                           return role == 'admin';
+                        }
+                        // Clôture et rapport : admin, boss, collaborateur seulement
+                        if (item.option == _NavOption.cloture ||
+                            item.option == _NavOption.rapportMensuel) {
+                          return role == 'admin' ||
+                              role == 'boss' ||
+                              role == 'collaborateur';
                         }
                         return true;
                       }).map((item) {
@@ -691,4 +713,34 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+}
+
+// ── Rapport mensuel (placeholder) ────────────────────────────────────────────
+class _RapportMensuelPlaceholder extends StatelessWidget {
+  const _RapportMensuelPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.bar_chart_outlined, size: 64, color: Colors.grey),
+          SizedBox(height: 16),
+          Text(
+            'Rapport mensuel',
+            style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black54),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Cette fonctionnalité sera disponible prochainement.',
+            style: TextStyle(color: Colors.grey),
+          ),
+        ],
+      ),
+    );
+  }
 }

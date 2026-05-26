@@ -22,6 +22,8 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
 
   // Financial section
   List<Map<String, Object?>> _financialRows = [];
+  List<Map<String, Object?>> _soldeReporteRows = [];
+  String? _lastClotureDateLabel;
   int _pendingDepenses = 0;
 
   // Voyage section
@@ -29,8 +31,8 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
   int _voyageEnCours = 0;
   int _voyageEnAttente = 0;
 
-  // Dossiers en retard
-  List<Map<String, Object?>> _dossiersEnRetard = [];
+  // Dossiers en souffrance (Makoso only)
+  List<Map<String, Object?>> _dossiersSouffrance = [];
 
   // Camions dashboard (Marina Trans)
   List<Map<String, Object?>> _camionRows = [];
@@ -50,36 +52,67 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
     final isMarian = widget.company == AppCompany.marian;
     final depotTable = isMarian ? 'depot_argent_marina_trans' : 'depot_argent_makoso';
     final depenseTable = isMarian ? 'depenses_marina_trans' : 'depenses_makoso';
+    final companyLabel = isMarian ? 'MARINA Trans' : 'MAKOSO Services';
 
-    final futures = <Future>[
-      db.getDashboardFinancialRows(depotTable: depotTable, depenseTable: depenseTable),
+    // Load clôture dates to determine the current period boundary
+    final clotureDates = await db.getClotureDatesForCompany(companyLabel);
+    final lastCloture = clotureDates.isNotEmpty ? clotureDates.last : null;
+
+    // Parallel load
+    final results = await Future.wait([
+      db.getDashboardFinancialRows(
+        depotTable: depotTable,
+        depenseTable: depenseTable,
+        fromDate: lastCloture,
+      ),
       db.getPendingDepenseCount(table: depenseTable),
+      db.getSoldeReporteParMonnaie(companyLabel),
       if (widget.showVoyages) db.getDashboardVoyageStats(),
-      if (!isMarian) db.getDossiersEnRetard(),
-      if (isMarian) db.getCamionsDashboardRows(),
-      if (isMarian) db.getRetourCamionDashboard(),
-    ];
-    final results = await Future.wait(futures);
+      if (!isMarian) db.getDossiersSouffrancePaiement(),
+      if (isMarian) db.getCamionsDashboardRows(fromDate: lastCloture),
+      if (isMarian) db.getRetourCamionDashboard(fromDate: lastCloture),
+    ]);
 
     if (!mounted) return;
 
+    // Fixed indices: 0=financial, 1=pending, 2=soldeReporte
+    final financialRows = results[0] as List<Map<String, Object?>>;
+    final pendingDepenses = results[1] as int;
+    final soldeReporteRows = results[2] as List<Map<String, Object?>>;
+
+    // Conditional indices start at 3
+    int varIdx = 3;
+    int voyageTotal = 0, voyageEnCours = 0, voyageEnAttente = 0;
+    if (widget.showVoyages) {
+      final stats = results[varIdx++] as Map<String, int>;
+      voyageTotal = stats['total'] ?? 0;
+      voyageEnCours = stats['en_cours'] ?? 0;
+      voyageEnAttente = stats['en_attente'] ?? 0;
+    }
+
+    final dossiersSouffrance = !isMarian
+        ? (results[varIdx++] as List<Map<String, Object?>>)
+        : <Map<String, Object?>>[];
+    final camionRows = isMarian
+        ? (results[varIdx++] as List<Map<String, Object?>>)
+        : <Map<String, Object?>>[];
+    final retourCamionRows = isMarian
+        ? (results[varIdx] as List<Map<String, Object?>>)
+        : <Map<String, Object?>>[];
+
     setState(() {
-      _financialRows = results[0] as List<Map<String, Object?>>;
-      _pendingDepenses = results[1] as int;
-      if (widget.showVoyages) {
-        final stats = results[2] as Map<String, int>;
-        _voyageTotal = stats['total'] ?? 0;
-        _voyageEnCours = stats['en_cours'] ?? 0;
-        _voyageEnAttente = stats['en_attente'] ?? 0;
-        // index 3: dossiersEnRetard (if !isMarian) OR camionsDashboard (if isMarian)
-        _dossiersEnRetard = isMarian ? [] : results[3] as List<Map<String, Object?>>;
-        _camionRows = isMarian ? results[3] as List<Map<String, Object?>> : [];
-        _retourCamionRows = isMarian ? results[4] as List<Map<String, Object?>> : [];
-      } else {
-        _dossiersEnRetard = isMarian ? [] : results[2] as List<Map<String, Object?>>;
-        _camionRows = isMarian ? results[2] as List<Map<String, Object?>> : [];
-        _retourCamionRows = isMarian ? results[3] as List<Map<String, Object?>> : [];
-      }
+      _financialRows = financialRows;
+      _pendingDepenses = pendingDepenses;
+      _soldeReporteRows = soldeReporteRows;
+      _lastClotureDateLabel = lastCloture != null
+          ? 'Données depuis le ${DateFormat('dd/MM/yyyy').format(DateTime.parse(lastCloture))}'
+          : null;
+      _voyageTotal = voyageTotal;
+      _voyageEnCours = voyageEnCours;
+      _voyageEnAttente = voyageEnAttente;
+      _dossiersSouffrance = dossiersSouffrance;
+      _camionRows = camionRows;
+      _retourCamionRows = retourCamionRows;
       _loading = false;
     });
   }
@@ -109,6 +142,20 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
                           iconColor: const Color(0xFF3B82F6),
                           badgeColor: const Color(0xFFEFF6FF),
                         ),
+                        if (_lastClotureDateLabel != null) ...[
+                          const SizedBox(height: 6),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: Text(
+                              _lastClotureDateLabel!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         if (_pendingDepenses > 0) ...[
                           _PendingDepenseBanner(count: _pendingDepenses),
@@ -120,7 +167,14 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
                             message: 'Aucune donnée financière disponible.',
                           )
                         else
-                          _FinancialTable(rows: _financialRows),
+                          _FinancialTable(
+                            rows: _financialRows,
+                            soldeReporte: {
+                              for (final r in _soldeReporteRows)
+                                (r['monnaie_uuid'] as String?):
+                                    (r['montant'] as num?)?.toDouble() ?? 0.0,
+                            },
+                          ),
 
                         const SizedBox(height: 28),
 
@@ -171,26 +225,26 @@ class _TableauDeBordScreenState extends State<TableauDeBordScreen> {
                           const SizedBox(height: 28),
                         ],
 
-                        // ── Dossiers en retard ───────────────────────────
+                        // ── Dossiers en souffrance ───────────────────────
                         if (widget.company != AppCompany.marian) ...[
                           _SectionHeader(
-                            icon: Icons.warning_rounded,
-                            label: 'Dossiers avec retard de paiement',
+                            icon: Icons.warning_amber_rounded,
+                            label: 'Dossiers en souffrance de paiement',
                             iconColor: const Color(0xFFEF4444),
                             badgeColor: const Color(0xFFFEF2F2),
-                            badge: _dossiersEnRetard.isEmpty
+                            badge: _dossiersSouffrance.isEmpty
                                 ? null
-                                : '${_dossiersEnRetard.length}',
+                                : '${_dossiersSouffrance.length}',
                           ),
                           const SizedBox(height: 12),
-                          if (_dossiersEnRetard.isEmpty)
+                          if (_dossiersSouffrance.isEmpty)
                             _EmptyState(
                               icon: Icons.check_circle_rounded,
                               iconColor: const Color(0xFF10B981),
-                              message: 'Aucun dossier avec retard de paiement.',
+                              message: 'Aucun dossier en souffrance de paiement.',
                             )
                           else
-                            _DossiersRetardList(dossiers: _dossiersEnRetard),
+                            _DossiersSouffranceList(dossiers: _dossiersSouffrance),
                         ],
                       ],
                     ),
@@ -401,12 +455,18 @@ class _PendingDepenseBanner extends StatelessWidget {
 
 class _FinancialTable extends StatelessWidget {
   final List<Map<String, Object?>> rows;
-  const _FinancialTable({required this.rows});
+  final Map<String?, double> soldeReporte;
+
+  const _FinancialTable({
+    required this.rows,
+    this.soldeReporte = const {},
+  });
 
   @override
   Widget build(BuildContext context) {
     final fmt = NumberFormat('#,##0.00', 'fr_FR');
     final cs = Theme.of(context).colorScheme;
+    final hasReport = soldeReporte.values.any((v) => v != 0);
 
     return Container(
       decoration: BoxDecoration(
@@ -443,6 +503,18 @@ class _FinancialTable extends StatelessWidget {
                         color: cs.onSurfaceVariant,
                       )),
                 ),
+                if (hasReport)
+                  Expanded(
+                    flex: 3,
+                    child: Text('REPORT',
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                          color: cs.onSurfaceVariant,
+                        )),
+                  ),
                 Expanded(
                   flex: 3,
                   child: Text('DÉPÔTS',
@@ -481,7 +553,13 @@ class _FinancialTable extends StatelessWidget {
           ),
           const Divider(height: 1),
           for (int i = 0; i < rows.length; i++) ...[
-            _FinancialDataRow(row: rows[i], fmt: fmt, isEven: i.isEven),
+            _FinancialDataRow(
+              row: rows[i],
+              fmt: fmt,
+              isEven: i.isEven,
+              report: soldeReporte[(rows[i]['monnaie_uuid'] as String?)] ?? 0.0,
+              showReport: hasReport,
+            ),
             if (i < rows.length - 1) const Divider(height: 1, indent: 20),
           ],
         ],
@@ -494,11 +572,15 @@ class _FinancialDataRow extends StatelessWidget {
   final Map<String, Object?> row;
   final NumberFormat fmt;
   final bool isEven;
+  final double report;
+  final bool showReport;
 
   const _FinancialDataRow({
     required this.row,
     required this.fmt,
     required this.isEven,
+    this.report = 0.0,
+    this.showReport = false,
   });
 
   @override
@@ -506,7 +588,7 @@ class _FinancialDataRow extends StatelessWidget {
     final sigle = (row['sigle'] as String?) ?? (row['nom'] as String?) ?? '?';
     final depot = (row['total_depot'] as num?)?.toDouble() ?? 0.0;
     final depense = (row['total_depense'] as num?)?.toDouble() ?? 0.0;
-    final solde = depot - depense;
+    final solde = report + depot - depense;
     final soldeColor =
         solde >= 0 ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
 
@@ -549,6 +631,14 @@ class _FinancialDataRow extends StatelessWidget {
               ],
             ),
           ),
+          if (showReport)
+            Expanded(
+              flex: 3,
+              child: Text(fmt.format(report),
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                      color: Color(0xFF7C3AED), fontSize: 13)),
+            ),
           Expanded(
             flex: 3,
             child: Text(fmt.format(depot),
@@ -705,64 +795,18 @@ class _VoyageStatCard extends StatelessWidget {
   }
 }
 
-// ─── Dossiers en retard list ─────────────────────────────────────────────────
+// ─── Dossiers en souffrance list ─────────────────────────────────────────────
 
-class _DossiersRetardList extends StatelessWidget {
+class _DossiersSouffranceList extends StatelessWidget {
   final List<Map<String, Object?>> dossiers;
-  const _DossiersRetardList({required this.dossiers});
-
-  static final _dateFmt = DateFormat('dd/MM/yyyy');
-
-  String _fmtDate(String? raw) {
-    if (raw == null || raw.isEmpty) return '-';
-    try {
-      return _dateFmt.format(DateTime.parse(raw));
-    } catch (_) {
-      return raw;
-    }
-  }
-
-  int _daysOverdue(String raw) {
-    try {
-      return DateTime.now().difference(DateTime.parse(raw)).inDays;
-    } catch (_) {
-      return 0;
-    }
-  }
-
-  List<({String label, int days})> _overdueItems(Map<String, Object?> row) {
-    const mapping = {
-      'date_paiement_30_draft': '30% Draft',
-      'date_paiement_30_pn': '30% PN',
-      'date_paiement_40_matadi': '40% Matadi',
-    };
-    final today = DateTime.now();
-    final items = <({String label, int days})>[];
-    for (final entry in mapping.entries) {
-      final raw = row[entry.key] as String?;
-      if (raw != null && raw.isNotEmpty) {
-        try {
-          if (DateTime.parse(raw).isBefore(today)) {
-            items.add((
-              label: '${entry.value} · échéance ${_fmtDate(raw)}',
-              days: _daysOverdue(raw),
-            ));
-          }
-        } catch (_) {}
-      }
-    }
-    return items;
-  }
+  const _DossiersSouffranceList({required this.dossiers});
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         for (int i = 0; i < dossiers.length; i++) ...[
-          _DossierRetardCard(
-            row: dossiers[i],
-            overdueItems: _overdueItems(dossiers[i]),
-          ),
+          _DossierSouffranceCard(row: dossiers[i]),
           if (i < dossiers.length - 1) const SizedBox(height: 10),
         ],
       ],
@@ -770,35 +814,25 @@ class _DossiersRetardList extends StatelessWidget {
   }
 }
 
-class _DossierRetardCard extends StatelessWidget {
+class _DossierSouffranceCard extends StatelessWidget {
   final Map<String, Object?> row;
-  final List<({String label, int days})> overdueItems;
-
-  const _DossierRetardCard({
-    required this.row,
-    required this.overdueItems,
-  });
+  const _DossierSouffranceCard({required this.row});
 
   @override
   Widget build(BuildContext context) {
     final numeroBl = (row['numero_bl'] as String?) ?? '-';
     final clientNom = (row['client_nom'] as String?) ?? '-';
     final statut = (row['statut'] as String?) ?? '-';
-    final maxDays = overdueItems.isEmpty
-        ? 0
-        : overdueItems.map((e) => e.days).reduce((a, b) => a > b ? a : b);
-
-    final urgencyColor = maxDays > 30
-        ? const Color(0xFFDC2626)
-        : maxDays > 14
-            ? const Color(0xFFEA580C)
-            : const Color(0xFFD97706);
+    final souffranceDraft = (row['souffrance_draft'] as int? ?? 0) == 1;
+    final souffrancePn = (row['souffrance_pn'] as int? ?? 0) == 1;
+    final souffranceMatadi = (row['souffrance_matadi'] as int? ?? 0) == 1;
+    const accentColor = Color(0xFFEF4444);
 
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: urgencyColor.withAlpha(60)),
+        border: Border.all(color: accentColor.withAlpha(60)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withAlpha(8),
@@ -811,13 +845,11 @@ class _DossierRetardCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Left urgency accent
             Container(
               width: 5,
-              decoration: BoxDecoration(
-                color: urgencyColor,
-                borderRadius:
-                    const BorderRadius.horizontal(left: Radius.circular(14)),
+              decoration: const BoxDecoration(
+                color: accentColor,
+                borderRadius: BorderRadius.horizontal(left: Radius.circular(14)),
               ),
             ),
             Expanded(
@@ -846,17 +878,13 @@ class _DossierRetardCard extends StatelessWidget {
                         children: [
                           Icon(Icons.person_outline_rounded,
                               size: 13,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant),
+                              color: Theme.of(context).colorScheme.onSurfaceVariant),
                           const SizedBox(width: 4),
                           Text(
                             clientNom,
                             style: TextStyle(
                               fontSize: 13,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
                             ),
                           ),
                         ],
@@ -866,13 +894,14 @@ class _DossierRetardCard extends StatelessWidget {
                     Wrap(
                       spacing: 6,
                       runSpacing: 6,
-                      children: overdueItems
-                          .map((item) => _OverdueChip(
-                                label: item.label,
-                                days: item.days,
-                                color: urgencyColor,
-                              ))
-                          .toList(),
+                      children: [
+                        if (souffranceDraft)
+                          _SouffranceChip(label: '30% Draft non payé'),
+                        if (souffrancePn)
+                          _SouffranceChip(label: '30% Pointe Noire non payé'),
+                        if (souffranceMatadi)
+                          _SouffranceChip(label: '40% Matadi non payé'),
+                      ],
                     ),
                   ],
                 ),
@@ -885,53 +914,30 @@ class _DossierRetardCard extends StatelessWidget {
   }
 }
 
-class _OverdueChip extends StatelessWidget {
+class _SouffranceChip extends StatelessWidget {
   final String label;
-  final int days;
-  final Color color;
-
-  const _OverdueChip({
-    required this.label,
-    required this.days,
-    required this.color,
-  });
+  const _SouffranceChip({required this.label});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withAlpha(18),
+        color: const Color(0xFFFEF2F2),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withAlpha(60)),
+        border: Border.all(color: const Color(0xFFEF4444).withAlpha(100)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.schedule_rounded, size: 12, color: color),
+          const Icon(Icons.warning_amber_rounded, size: 13, color: Color(0xFFEF4444)),
           const SizedBox(width: 4),
           Text(
             label,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 12,
-              color: color,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              '$days j',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-              ),
+              color: Color(0xFFB91C1C),
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
