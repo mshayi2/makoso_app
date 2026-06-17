@@ -48,7 +48,8 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
   List<Map<String, Object?>> _conteneurs = [];
   List<Dossier> _activeDossiers = [];
 
-  bool get _canEdit => widget.user.role != 'opérateur logistique';
+  bool get _canEdit => true;
+  bool get _canDelete => true;
 
   @override
   void initState() {
@@ -1179,7 +1180,7 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                                       tooltip: 'Modifier',
                                       onPressed: () => _startEdit(row),
                                     ),
-                                  if (_canEdit)
+                                  if (_canDelete)
                                     IconButton(
                                       icon: const Icon(Icons.delete_outline,
                                           color: Colors.red),

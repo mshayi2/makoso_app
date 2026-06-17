@@ -13,6 +13,7 @@ const List<String> _kDepotLibellesMakoso = [
   'Paiement 30% Pointe Noir',
   'Paiement 40% Matadi',
   'Paiement 100% du montant',
+  'Supplément des dépenses éffectuées',
 ];
 
 const List<String> _kDepotLibellesMarian = [
@@ -320,13 +321,17 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
               width: fieldWidth,
               child: DropdownButtonFormField<String>(
                 value: _selectedLibelle,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Libellé *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.list_alt_outlined),
                 ),
                 items: _libelles
-                    .map((libelle) => DropdownMenuItem(value: libelle, child: Text(libelle)))
+                    .map((libelle) => DropdownMenuItem(
+                          value: libelle,
+                          child: Text(libelle, overflow: TextOverflow.ellipsis),
+                        ))
                     .toList(),
                 validator: (value) => value == null ? 'Champ requis' : null,
                 onChanged: (value) async {

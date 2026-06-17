@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/utilisateur.dart';
 import 'main_screen.dart';
 
-class CompanySelectionScreen extends StatelessWidget {
+class CompanySelectionScreen extends StatefulWidget {
   final Utilisateur user;
   final bool showDefaultPasswordWarning;
 
@@ -15,14 +15,34 @@ class CompanySelectionScreen extends StatelessWidget {
     this.showDefaultPasswordWarning = false,
   });
 
-  void _enter(BuildContext context, AppCompany company) {
+  @override
+  State<CompanySelectionScreen> createState() => _CompanySelectionScreenState();
+}
+
+class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
+  @override
+  void initState() {
+    super.initState();
+    final role = widget.user.role?.toLowerCase().trim() ?? '';
+    if (role == 'opérateur logistique') {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _enter(AppCompany.makoso),
+      );
+    } else if (role == 'gestionnaire kinshasa' || role == 'gestionnaire matadi') {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _enter(AppCompany.marian),
+      );
+    }
+  }
+
+  void _enter(AppCompany company) {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => MainScreen(
-          user: user,
+          user: widget.user,
           company: company,
-          showDefaultPasswordWarning: showDefaultPasswordWarning,
+          showDefaultPasswordWarning: widget.showDefaultPasswordWarning,
         ),
       ),
     );
@@ -93,7 +113,7 @@ class CompanySelectionScreen extends StatelessWidget {
                             subtitle: 'Services',
                             icon: Icons.folder_copy_outlined,
                             color: const Color(0xFF1A237E),
-                            onTap: () => _enter(context, AppCompany.makoso),
+                            onTap: () => _enter(AppCompany.makoso),
                           ),
                         ),
                         const SizedBox(width: 24),
@@ -104,7 +124,7 @@ class CompanySelectionScreen extends StatelessWidget {
                             subtitle: 'Trans',
                             icon: Icons.local_shipping_outlined,
                             color: const Color(0xFF00695C),
-                            onTap: () => _enter(context, AppCompany.marian),
+                            onTap: () => _enter(AppCompany.marian),
                           ),
                         ),
                       ],
