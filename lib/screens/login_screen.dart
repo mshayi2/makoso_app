@@ -5,10 +5,13 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
+import 'company_selection_screen.dart';
 import 'main_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final AppCompany company;
+
+  const LoginScreen({super.key, required this.company});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -56,6 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
           MaterialPageRoute(
             builder: (_) => MainScreen(
               user: user,
+              company: widget.company,
               showDefaultPasswordWarning: isDefault,
             ),
           ),
@@ -110,16 +114,27 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.business,
-                            size: 64, color: Color(0xFF1A237E)),
+                        Icon(
+                          widget.company == AppCompany.marinaTrans
+                              ? Icons.local_shipping_rounded
+                              : Icons.business,
+                          size: 64,
+                          color: widget.company == AppCompany.marinaTrans
+                              ? const Color(0xFF16A34A)
+                              : const Color(0xFF1A237E),
+                        ),
                         const SizedBox(height: 8),
-                        const Text(
-                          'MAKOSO',
+                        Text(
+                          widget.company == AppCompany.marinaTrans
+                              ? 'MARINA Trans'
+                              : 'MAKOSO Service',
                           style: TextStyle(
-                            fontSize: 28,
+                            fontSize: 26,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF1A237E),
-                            letterSpacing: 4,
+                            color: widget.company == AppCompany.marinaTrans
+                                ? const Color(0xFF16A34A)
+                                : const Color(0xFF1A237E),
+                            letterSpacing: 2,
                           ),
                         ),
                         const SizedBox(height: 36),
@@ -195,6 +210,24 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         const SizedBox(height: 24),
+                        const Divider(height: 1),
+                        const SizedBox(height: 12),
+                        // Back to company selection
+                        TextButton.icon(
+                          onPressed: () => Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  const CompanySelectionScreen(),
+                            ),
+                          ),
+                          icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                          label: const Text('Changer d\'espace'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.black54,
+                            textStyle: const TextStyle(fontSize: 12),
+                          ),
+                        ),
                         const Divider(height: 1),
                         const SizedBox(height: 12),
                         RichText(

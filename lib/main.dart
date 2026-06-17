@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'database/app_database.dart';
-import 'screens/tableau_de_bord_screen.dart';
+import 'screens/company_selection_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,7 +33,7 @@ class MakosoApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const TableauDeBordScreen(),
+      home: const CompanySelectionScreen(),
     );
   }
 }

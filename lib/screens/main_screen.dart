@@ -8,10 +8,13 @@ import '../services/sync_service.dart';
 import 'camions_screen.dart';
 import 'chauffeurs_convoyeurs_screen.dart';
 import 'clients_screen.dart';
+import 'company_selection_screen.dart';
 import 'depot_argent_screen.dart';
 import 'depenses_screen.dart';
 import 'dossiers_screen.dart';
 import 'login_screen.dart';
+import 'makoso_dashboard_screen.dart';
+import 'marina_dashboard_screen.dart';
 import 'tableau_de_bord_screen.dart';
 import 'utilisateurs_screen.dart';
 import 'voyages_screen.dart';
@@ -49,11 +52,13 @@ const _navItems = [
 
 class MainScreen extends StatefulWidget {
   final Utilisateur user;
+  final AppCompany company;
   final bool showDefaultPasswordWarning;
 
   const MainScreen({
     super.key,
     required this.user,
+    required this.company,
     this.showDefaultPasswordWarning = false,
   });
 
@@ -202,7 +207,11 @@ class _MainScreenState extends State<MainScreen> {
 
   Widget _buildScreen(_NavOption option) {
     final child = switch (option) {
-      _NavOption.tableauDeBord => const TableauDeBordScreen(),
+      _NavOption.tableauDeBord => widget.company == AppCompany.marinaTrans
+          ? const MarinaDashboardScreen()
+          : widget.company == AppCompany.makoso
+              ? const MakosoDashboardScreen()
+              : const TableauDeBordScreen(),
       _NavOption.depotArgent => DepotArgentScreen(user: widget.user),
       _NavOption.depenses => DepensesScreen(user: widget.user),
       _NavOption.utilisateurs => const UtilisateursScreen(),
@@ -408,14 +417,26 @@ class _MainScreenState extends State<MainScreen> {
     _syncTimer?.cancel();
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      MaterialPageRoute(
+          builder: (_) => LoginScreen(company: widget.company)),
+    );
+  }
+
+  void _changeCompany() {
+    _syncTimer?.cancel();
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+          builder: (_) => const CompanySelectionScreen()),
     );
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    const sidebarBg = Color(0xFF1A237E);
+    final sidebarBg = widget.company == AppCompany.marinaTrans
+        ? const Color(0xFF14532D)
+        : const Color(0xFF1A237E);
 
     return Scaffold(
       body: Row(
@@ -545,6 +566,17 @@ class _MainScreenState extends State<MainScreen> {
                               : () => unawaited(
                                     _runSynchronization(showFeedback: true),
                                   ),
+                        ),
+                        const Divider(height: 1, color: Colors.white24),
+                        const SizedBox(height: 4),
+                        ListTile(
+                          leading: const Icon(Icons.swap_horiz_rounded,
+                              color: Colors.white70),
+                          title: const Text(
+                            'Changer d\'espace',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                          onTap: _changeCompany,
                         ),
                         const Divider(height: 1, color: Colors.white24),
                         const SizedBox(height: 4),

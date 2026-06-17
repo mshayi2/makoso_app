@@ -35,11 +35,16 @@ class AppDatabase {
     'conteneurs',
     'detail_conteneurs',
     'interchange',
-    'depot_argent',
-    'depenses',
+    'scan_bl',
+    'depot_argent_makoso',
+    'depot_argent_marina_trans',
+    'depenses_makoso',
+    'depenses_marina_trans',
     'camions',
     'chauffeurs_convoyeurs',
     'voyages',
+    'scan_voyage',
+    'solde',
   ];
 
   sqflite.Database? _database;
@@ -133,9 +138,11 @@ class AppDatabase {
         nom TEXT,
         adresse TEXT,
         telephone TEXT,
-        email TEXT
+        email TEXT,
+        type_client TEXT
       )
     ''');
+    await _ensureColumn(db, 'clients', 'type_client', 'TEXT');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS dossiers (
@@ -154,9 +161,11 @@ class AppDatabase {
         date_paiement_40_matadi DATE,
         montant_convenu REAL,
         statut TEXT,
+        type_bl TEXT,
         date_creation TEXT DEFAULT CURRENT_TIMESTAMP
       )
     ''');
+    await _ensureColumn(db, 'dossiers', 'type_bl', 'TEXT');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS conteneurs (
@@ -165,11 +174,33 @@ class AppDatabase {
         sync INTEGER DEFAULT 0,
         dossier_uuid TEXT,
         numero_conteneur TEXT,
-        dimension TEXT
+        dimension TEXT,
+        date_sorti_port DATE,
+        nom_transporteur TEXT,
+        marque_camion TEXT,
+        numero_plaque TEXT,
+        nom_chauffeur TEXT,
+        numero_chauffeur TEXT,
+        lieu_dechargement TEXT,
+        date_arriver_lieu_dechargement DATE,
+        date_dechargement DATE,
+        date_depart_retour_port DATE,
+        date_retour_port DATE
       )
     ''');
 
     await _ensureColumn(db, 'conteneurs', 'dimension', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'date_sorti_port', 'DATE');
+    await _ensureColumn(db, 'conteneurs', 'nom_transporteur', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'marque_camion', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'numero_plaque', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'nom_chauffeur', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'numero_chauffeur', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'lieu_dechargement', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'date_arriver_lieu_dechargement', 'DATE');
+    await _ensureColumn(db, 'conteneurs', 'date_dechargement', 'DATE');
+    await _ensureColumn(db, 'conteneurs', 'date_depart_retour_port', 'DATE');
+    await _ensureColumn(db, 'conteneurs', 'date_retour_port', 'DATE');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS detail_conteneurs (
@@ -199,7 +230,19 @@ class AppDatabase {
     await _ensureColumn(db, 'interchange', 'nom_fichier', 'TEXT');
 
     await db.execute('''
-      CREATE TABLE IF NOT EXISTS depot_argent (
+      CREATE TABLE IF NOT EXISTS scan_bl (
+        uuid TEXT PRIMARY KEY,
+        id INTEGER,
+        sync INTEGER DEFAULT 0,
+        dossier_uuid TEXT,
+        scan BLOB,
+        page INTEGER,
+        nom_fichier TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS depot_argent_makoso (
         uuid TEXT PRIMARY KEY,
         id INTEGER,
         sync INTEGER DEFAULT 0,
@@ -214,7 +257,22 @@ class AppDatabase {
     ''');
 
     await db.execute('''
-      CREATE TABLE IF NOT EXISTS depenses (
+      CREATE TABLE IF NOT EXISTS depot_argent_marina_trans (
+        uuid TEXT PRIMARY KEY,
+        id INTEGER,
+        sync INTEGER DEFAULT 0,
+        monnaie_uuid TEXT,
+        montant REAL,
+        libelle TEXT,
+        observation TEXT,
+        date_paiement DATE,
+        source_uuid TEXT,
+        agent TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS depenses_makoso (
         uuid TEXT PRIMARY KEY,
         id INTEGER,
         sync INTEGER DEFAULT 0,
@@ -225,9 +283,36 @@ class AppDatabase {
         valide INTEGER,
         date_validation DATE,
         validateur_uuid TEXT,
-        monnaie_uuid TEXT
+        monnaie_uuid TEXT,
+        deja_executer INTEGER DEFAULT 0,
+        dossier_uuid TEXT
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS depenses_marina_trans (
+        uuid TEXT PRIMARY KEY,
+        id INTEGER,
+        sync INTEGER DEFAULT 0,
+        montant REAL,
+        libelle TEXT,
+        observation TEXT,
+        date DATE,
+        valide INTEGER,
+        date_validation DATE,
+        validateur_uuid TEXT,
+        monnaie_uuid TEXT,
+        type_depense TEXT,
+        origine_uuid TEXT,
+        deja_executer INTEGER DEFAULT 0
+      )
+    ''');
+
+    await _ensureColumn(db, 'depenses_marina_trans', 'type_depense', 'TEXT');
+    await _ensureColumn(db, 'depenses_marina_trans', 'origine_uuid', 'TEXT');
+    await _ensureColumn(db, 'depenses_makoso', 'deja_executer', 'INTEGER DEFAULT 0');
+    await _ensureColumn(db, 'depenses_makoso', 'dossier_uuid', 'TEXT');
+    await _ensureColumn(db, 'depenses_marina_trans', 'deja_executer', 'INTEGER DEFAULT 0');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS camions (
@@ -268,7 +353,35 @@ class AppDatabase {
         statut TEXT,
         camion_uuid TEXT,
         chauffeur_uuid TEXT,
-        convoyeur_uuid TEXT
+        convoyeur_uuid TEXT,
+        client_uuid TEXT,
+        valide INTEGER DEFAULT 0
+      )
+    ''');
+    await _ensureColumn(db, 'voyages', 'client_uuid', 'TEXT');
+    await _ensureColumn(db, 'voyages', 'valide', 'INTEGER DEFAULT 0');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS scan_voyage (
+        uuid TEXT PRIMARY KEY,
+        id INTEGER,
+        sync INTEGER DEFAULT 0,
+        voyage_uuid TEXT,
+        scan BLOB,
+        page INTEGER,
+        nom_fichier TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS solde (
+        uuid TEXT PRIMARY KEY,
+        id INTEGER,
+        sync INTEGER DEFAULT 0,
+        monnaie_uuid TEXT,
+        montant FLOAT,
+        date_cloture DATE,
+        nom_company TEXT
       )
     ''');
 
@@ -1622,6 +1735,321 @@ class AppDatabase {
       ORDER BY
         MIN(dos.date_paiement_30_draft, dos.date_paiement_30_pn, dos.date_paiement_40_matadi) ASC
     ''', [today, today, today]);
+    return rows.toList();
+  }
+
+  // ─── MAKOSO dashboard helpers ─────────────────────────────────────────────
+
+  Future<List<Map<String, Object?>>> getMakosoDashboardFinancialRows() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        m.uuid  AS monnaie_uuid,
+        m.nom   AS nom,
+        m.sigle AS sigle,
+        COALESCE((
+          SELECT SUM(d.montant)
+          FROM depot_argent_makoso d
+          WHERE d.monnaie_uuid = m.uuid AND d.id > 0
+        ), 0) AS total_depot,
+        COALESCE((
+          SELECT SUM(e.montant)
+          FROM depenses_makoso e
+          WHERE e.monnaie_uuid = m.uuid AND e.id > 0 AND e.valide = 1
+        ), 0) AS total_depense
+      FROM monnaies m
+      WHERE m.id > 0 AND m.uuid IN (
+        SELECT DISTINCT monnaie_uuid FROM depot_argent_makoso WHERE monnaie_uuid IS NOT NULL AND id > 0
+        UNION
+        SELECT DISTINCT monnaie_uuid FROM depenses_makoso WHERE monnaie_uuid IS NOT NULL AND id > 0
+      )
+      ORDER BY m.nom ASC
+    ''');
+    return rows.toList();
+  }
+
+  Future<int> getMakosoPendingDepenseCount() async {
+    final db = await initialize();
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS cnt FROM depenses_makoso WHERE id > 0 AND (valide = 0 OR valide IS NULL)',
+    );
+    return (result.first['cnt'] as int?) ?? 0;
+  }
+
+  Future<List<Map<String, Object?>>> getMakosoPendingDepenses() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        e.*,
+        m.nom   AS monnaie_nom,
+        m.sigle AS monnaie_sigle,
+        COALESCE(u.nom_complet, u.nom_utilisateur) AS validateur_nom
+      FROM depenses_makoso e
+      LEFT JOIN monnaies m ON m.uuid = e.monnaie_uuid AND m.id > 0
+      LEFT JOIN utilisateurs u ON u.uuid = e.validateur_uuid AND u.id > 0
+      WHERE e.id > 0 AND (e.valide = 0 OR e.valide IS NULL)
+      ORDER BY COALESCE(e.date, '') DESC, ABS(e.id) DESC
+    ''');
+    return rows.toList();
+  }
+
+  Future<int> validateMakosoDepense(String uuid, String dateValidation) async {
+    final db = await initialize();
+    return db.rawUpdate(
+      '''UPDATE depenses_makoso
+         SET valide = 1, date_validation = ?,
+             sync = CASE WHEN sync > 0 THEN -sync ELSE sync END
+         WHERE uuid = ?''',
+      [dateValidation, uuid],
+    );
+  }
+
+  Future<int> deleteMakosoDepense(String uuid) async {
+    return smartDelete('depenses_makoso', where: 'uuid = ?', whereArgs: [uuid]);
+  }
+
+  /// Dossiers en souffrance according to deposit coverage rules.
+  Future<List<Map<String, Object?>>> getDossiersEnSouffrance() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        dos.uuid,
+        dos.numero_bl,
+        dos.statut,
+        dos.montant_convenu,
+        dos.date_arrivee_pn,
+        dos.date_arrivee_matadi,
+        dos.date_creation,
+        c.nom AS client_nom,
+        COALESCE((
+          SELECT SUM(da.montant)
+          FROM depot_argent_makoso da
+          WHERE da.source_uuid = dos.uuid AND da.id > 0
+            AND LOWER(da.libelle) IN ('paiement 30% draft', 'paiement 100% du montant')
+        ), 0) AS depot_draft,
+        COALESCE((
+          SELECT SUM(da.montant)
+          FROM depot_argent_makoso da
+          WHERE da.source_uuid = dos.uuid AND da.id > 0
+            AND LOWER(da.libelle) IN ('paiement 30% pointe noir', 'paiement 100% du montant')
+        ), 0) AS depot_pn,
+        COALESCE((
+          SELECT SUM(da.montant)
+          FROM depot_argent_makoso da
+          WHERE da.source_uuid = dos.uuid AND da.id > 0
+            AND LOWER(da.libelle) IN ('paiement 40% matadi', 'paiement 100% du montant')
+        ), 0) AS depot_matadi
+      FROM dossiers dos
+      LEFT JOIN clients c ON c.uuid = dos.client_uuid AND c.id > 0
+      WHERE dos.id > 0
+        AND COALESCE(dos.montant_convenu, 0) > 0
+        AND LOWER(COALESCE(dos.statut, '')) NOT IN ('clôturé', 'cloture', 'annulé', 'annule')
+    ''');
+
+    final result = <Map<String, Object?>>[];
+    for (final row in rows) {
+      final montant = (row['montant_convenu'] as num?)?.toDouble() ?? 0.0;
+      final statut = (row['statut'] as String?)?.toLowerCase() ?? '';
+      final dateArriveePn = row['date_arrivee_pn'] as String?;
+      final dateArriveeMatadi = row['date_arrivee_matadi'] as String?;
+      final depotDraft = (row['depot_draft'] as num?)?.toDouble() ?? 0.0;
+      final depotPn = (row['depot_pn'] as num?)?.toDouble() ?? 0.0;
+      final depotMatadi = (row['depot_matadi'] as num?)?.toDouble() ?? 0.0;
+
+      final souffranceDraft =
+          statut == 'en cours' && depotDraft < montant * 0.30;
+      final souffrancePn =
+          (dateArriveePn != null && dateArriveePn.isNotEmpty) &&
+              depotPn < montant * 0.30;
+      final souffranceMatadi =
+          (dateArriveeMatadi != null && dateArriveeMatadi.isNotEmpty) &&
+              depotMatadi < montant * 0.40;
+
+      if (souffranceDraft || souffrancePn || souffranceMatadi) {
+        result.add({
+          ...row,
+          'souffrance_draft': souffranceDraft ? 1 : 0,
+          'souffrance_pn': souffrancePn ? 1 : 0,
+          'souffrance_matadi': souffranceMatadi ? 1 : 0,
+          'manque_draft':
+              souffranceDraft ? (montant * 0.30 - depotDraft) : 0.0,
+          'manque_pn': souffrancePn ? (montant * 0.30 - depotPn) : 0.0,
+          'manque_matadi':
+              souffranceMatadi ? (montant * 0.40 - depotMatadi) : 0.0,
+        });
+      }
+    }
+    return result;
+  }
+
+  /// Search conteneurs by numero_conteneur (partial, case-insensitive).
+  /// Returns conteneur details joined with dossier, client, and counts.
+  Future<List<Map<String, Object?>>> searchConteneurs(String query) async {
+    final db = await initialize();
+    final like = '%${query.trim()}%';
+    final rows = await db.rawQuery('''
+      SELECT
+        c.uuid            AS conteneur_uuid,
+        c.numero_conteneur,
+        c.dimension,
+        c.date_sorti_port,
+        c.nom_transporteur,
+        c.marque_camion,
+        c.numero_plaque,
+        c.nom_chauffeur,
+        c.numero_chauffeur,
+        c.lieu_dechargement,
+        c.date_arriver_lieu_dechargement,
+        c.date_dechargement,
+        c.date_depart_retour_port,
+        c.date_retour_port,
+        dos.uuid          AS dossier_uuid,
+        dos.numero_bl,
+        dos.statut        AS dossier_statut,
+        dos.port_chargement,
+        dos.port_destination,
+        dos.nature_marchandise,
+        dos.montant_convenu,
+        dos.date_arrivee_pn,
+        dos.date_arrivee_matadi,
+        cl.nom            AS client_nom,
+        (SELECT COUNT(*) FROM detail_conteneurs dc
+          WHERE dc.conteneur_uuid = c.uuid AND dc.id > 0) AS nb_articles,
+        (SELECT COUNT(*) FROM interchange ic
+          WHERE ic.conteneur_uuid = c.uuid AND ic.id > 0) AS nb_interchange
+      FROM conteneurs c
+      LEFT JOIN dossiers dos ON dos.uuid = c.dossier_uuid AND dos.id > 0
+      LEFT JOIN clients cl   ON cl.uuid  = dos.client_uuid AND cl.id > 0
+      WHERE c.id > 0
+        AND UPPER(c.numero_conteneur) LIKE UPPER(?)
+      ORDER BY c.numero_conteneur ASC
+      LIMIT 30
+    ''', [like]);
+    return rows.toList();
+  }
+
+  // ─── MARINA Trans dashboard helpers ──────────────────────────────────────
+
+  Future<List<Map<String, Object?>>> getMarinaDashboardFinancialRows() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        m.uuid  AS monnaie_uuid,
+        m.nom   AS nom,
+        m.sigle AS sigle,
+        COALESCE((
+          SELECT SUM(d.montant)
+          FROM depot_argent_marina_trans d
+          WHERE d.monnaie_uuid = m.uuid AND d.id > 0
+        ), 0) AS total_depot,
+        COALESCE((
+          SELECT SUM(e.montant)
+          FROM depenses_marina_trans e
+          WHERE e.monnaie_uuid = m.uuid AND e.id > 0 AND e.valide = 1
+        ), 0) AS total_depense
+      FROM monnaies m
+      WHERE m.id > 0 AND m.uuid IN (
+        SELECT DISTINCT monnaie_uuid FROM depot_argent_marina_trans
+          WHERE monnaie_uuid IS NOT NULL AND id > 0
+        UNION
+        SELECT DISTINCT monnaie_uuid FROM depenses_marina_trans
+          WHERE monnaie_uuid IS NOT NULL AND id > 0
+      )
+      ORDER BY m.nom ASC
+    ''');
+    return rows.toList();
+  }
+
+  Future<Map<String, int>> getMarinaDashboardVoyageStats() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN LOWER(COALESCE(statut,'')) = 'en cours'   THEN 1 ELSE 0 END) AS en_cours,
+        SUM(CASE WHEN LOWER(COALESCE(statut,'')) = 'en attente' THEN 1 ELSE 0 END) AS en_attente,
+        SUM(CASE WHEN LOWER(COALESCE(statut,'')) = 'terminé'    THEN 1 ELSE 0 END) AS termines
+      FROM voyages
+      WHERE id > 0
+    ''');
+    final row = rows.first;
+    return {
+      'total': (row['total'] as int?) ?? 0,
+      'en_cours': (row['en_cours'] as int?) ?? 0,
+      'en_attente': (row['en_attente'] as int?) ?? 0,
+      'termines': (row['termines'] as int?) ?? 0,
+    };
+  }
+
+  Future<List<Map<String, Object?>>> getMarinaCamionStats() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        cam.uuid        AS camion_uuid,
+        cam.marque      AS marque,
+        cam.plaque      AS plaque,
+        cam.modele      AS modele,
+        COUNT(v.uuid)   AS total_voyages,
+        SUM(CASE WHEN LOWER(COALESCE(v.statut,'')) = 'en cours'   THEN 1 ELSE 0 END) AS voyages_en_cours,
+        SUM(CASE WHEN LOWER(COALESCE(v.statut,'')) = 'en attente' THEN 1 ELSE 0 END) AS voyages_en_attente,
+        SUM(CASE WHEN LOWER(COALESCE(v.statut,'')) = 'terminé'    THEN 1 ELSE 0 END) AS voyages_termines,
+        COALESCE((
+          SELECT SUM(da.montant)
+          FROM depot_argent_marina_trans da
+          WHERE da.source_uuid IN (
+            SELECT vv.uuid FROM voyages vv WHERE vv.camion_uuid = cam.uuid AND vv.id > 0
+          ) AND da.id > 0
+        ), 0) AS total_revenus,
+        COALESCE((
+          SELECT SUM(dep.montant)
+          FROM depenses_marina_trans dep
+          WHERE dep.origine_uuid IN (
+            SELECT vv.uuid FROM voyages vv WHERE vv.camion_uuid = cam.uuid AND vv.id > 0
+          ) AND dep.id > 0 AND dep.valide = 1
+        ), 0) AS total_depenses
+      FROM camions cam
+      LEFT JOIN voyages v ON v.camion_uuid = cam.uuid AND v.id > 0
+      WHERE cam.id > 0
+      GROUP BY cam.uuid
+      ORDER BY cam.marque ASC, cam.plaque ASC
+    ''');
+    return rows.toList();
+  }
+
+  Future<List<Map<String, Object?>>> getMarinaRetourChargeStats() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        v.uuid            AS voyage_uuid,
+        v.numero_voyage,
+        v.date_voyage,
+        v.lieu_depart,
+        v.lieu_destination,
+        v.montant_convenu,
+        v.statut,
+        m.sigle           AS monnaie_sigle,
+        m.nom             AS monnaie_nom,
+        cam.marque        AS camion_marque,
+        cam.plaque        AS camion_plaque,
+        ch.nom            AS chauffeur_nom,
+        cl.nom            AS client_nom,
+        COALESCE((
+          SELECT SUM(da.montant)
+          FROM depot_argent_marina_trans da
+          WHERE da.source_uuid = v.uuid AND da.id > 0
+        ), 0) AS total_depot,
+        COALESCE((
+          SELECT SUM(dep.montant)
+          FROM depenses_marina_trans dep
+          WHERE dep.origine_uuid = v.uuid AND dep.id > 0 AND dep.valide = 1
+        ), 0) AS total_depense
+      FROM voyages v
+      LEFT JOIN monnaies m   ON m.uuid   = v.monnaie_uuid  AND m.id > 0
+      LEFT JOIN camions  cam ON cam.uuid = v.camion_uuid   AND cam.id > 0
+      LEFT JOIN chauffeurs_convoyeurs ch ON ch.uuid = v.chauffeur_uuid AND ch.id > 0
+      LEFT JOIN clients cl ON cl.uuid = v.client_uuid AND cl.id > 0
+      WHERE v.id > 0 AND v.valide = 1
+      ORDER BY COALESCE(v.date_voyage, '') DESC, ABS(v.id) DESC
+    ''');
     return rows.toList();
   }
 }
