@@ -12,6 +12,8 @@ const List<String> _kDepotLibellesMakoso = [
   'Paiement 30% draft',
   'Paiement 30% Pointe Noir',
   'Paiement 40% Matadi',
+  'Paiement 1er Tranche de 50%',
+  'Paiement 2ème tranche de 50%',
   'Paiement 100% du montant',
   'Supplément des dépenses éffectuées',
 ];

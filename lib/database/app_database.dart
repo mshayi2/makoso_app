@@ -114,7 +114,9 @@ class AppDatabase {
     );
     final legacyNames = legacyRows.map((r) => r['name'] as String).toSet();
     if (legacyNames.contains('depot_argent')) {
-      await db.execute('ALTER TABLE depot_argent RENAME TO depot_argent_makoso');
+      await db.execute(
+        'ALTER TABLE depot_argent RENAME TO depot_argent_makoso',
+      );
     }
     if (legacyNames.contains('depenses')) {
       await db.execute('ALTER TABLE depenses RENAME TO depenses_makoso');
@@ -213,7 +215,12 @@ class AppDatabase {
     await _ensureColumn(db, 'conteneurs', 'nom_chauffeur', 'TEXT');
     await _ensureColumn(db, 'conteneurs', 'numero_chauffeur', 'TEXT');
     await _ensureColumn(db, 'conteneurs', 'lieu_dechargement', 'TEXT');
-    await _ensureColumn(db, 'conteneurs', 'date_arriver_lieu_dechargement', 'DATE');
+    await _ensureColumn(
+      db,
+      'conteneurs',
+      'date_arriver_lieu_dechargement',
+      'DATE',
+    );
     await _ensureColumn(db, 'conteneurs', 'date_dechargement', 'DATE');
     await _ensureColumn(db, 'conteneurs', 'date_depart_retour_port', 'DATE');
     await _ensureColumn(db, 'conteneurs', 'date_retour_port', 'DATE');
@@ -326,9 +333,19 @@ class AppDatabase {
 
     await _ensureColumn(db, 'depenses_marina_trans', 'type_depense', 'TEXT');
     await _ensureColumn(db, 'depenses_marina_trans', 'origine_uuid', 'TEXT');
-    await _ensureColumn(db, 'depenses_makoso', 'deja_executer', 'INTEGER DEFAULT 0');
+    await _ensureColumn(
+      db,
+      'depenses_makoso',
+      'deja_executer',
+      'INTEGER DEFAULT 0',
+    );
     await _ensureColumn(db, 'depenses_makoso', 'dossier_uuid', 'TEXT');
-    await _ensureColumn(db, 'depenses_marina_trans', 'deja_executer', 'INTEGER DEFAULT 0');
+    await _ensureColumn(
+      db,
+      'depenses_marina_trans',
+      'deja_executer',
+      'INTEGER DEFAULT 0',
+    );
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS camions (
@@ -471,9 +488,8 @@ class AppDatabase {
   }) async {
     final db = await initialize();
     final row = Map<String, dynamic>.from(values)..remove('sync');
-    final setClauses =
-        row.keys.map((k) => '"$k" = ?').toList()
-          ..add('sync = CASE WHEN sync > 0 THEN -sync ELSE sync END');
+    final setClauses = row.keys.map((k) => '"$k" = ?').toList()
+      ..add('sync = CASE WHEN sync > 0 THEN -sync ELSE sync END');
     var sql = 'UPDATE "$table" SET ${setClauses.join(', ')}';
     if (where != null) sql += ' WHERE $where';
     return db.rawUpdate(sql, [...row.values, ...(whereArgs ?? [])]);
@@ -507,7 +523,8 @@ class AppDatabase {
     List<Object?>? whereArgs,
   }) async {
     final db = await initialize();
-    var sql = 'UPDATE "$table" SET '
+    var sql =
+        'UPDATE "$table" SET '
         'id = CASE WHEN id > 0 THEN -id ELSE id END, '
         'sync = CASE WHEN sync > 0 THEN -sync ELSE sync END';
     if (where != null) sql += ' WHERE $where';
@@ -523,10 +540,7 @@ class AppDatabase {
         'SELECT COALESCE(MAX(ABS(sync)), 0) AS max_sync FROM "$table"',
       );
       final maxSync = ((result.first['max_sync'] as num?) ?? 0).toInt();
-      states.add({
-        'table_name': table,
-        'sync': maxSync,
-      });
+      states.add({'table_name': table, 'sync': maxSync});
     }
 
     return states;
@@ -534,8 +548,7 @@ class AppDatabase {
 
   Future<List<Map<String, Object?>>> getPendingSyncRecords(String table) async {
     final db = await initialize();
-    final rows = await db.rawQuery(
-      '''
+    final rows = await db.rawQuery('''
       SELECT *
       FROM "$table"
       WHERE sync = 0
@@ -550,12 +563,14 @@ class AppDatabase {
         END,
         ABS(COALESCE(id, 0)) ASC,
         uuid ASC
-      ''',
-    );
+      ''');
     return rows.map((row) => Map<String, Object?>.from(row)).toList();
   }
 
-  Future<void> upsertSyncRecord(String table, Map<String, dynamic> record) async {
+  Future<void> upsertSyncRecord(
+    String table,
+    Map<String, dynamic> record,
+  ) async {
     final db = await initialize();
     final sanitized = await _sanitizeSyncRecord(table, record);
     if (sanitized.isEmpty) {
@@ -594,10 +609,7 @@ class AppDatabase {
     String? uuid,
   }) async {
     final db = await initialize();
-    final whereParts = <String>[
-      'ABS(id) = ?',
-      'ABS(sync) = ?',
-    ];
+    final whereParts = <String>['ABS(id) = ?', 'ABS(sync) = ?'];
     final whereArgs = <Object?>[expectedId, expectedSync];
 
     if (uuid != null && uuid.isNotEmpty) {
@@ -631,7 +643,10 @@ class AppDatabase {
     return db.delete(table, where: 'uuid = ?', whereArgs: [uuid]);
   }
 
-  Future<Map<String, Object?>?> getRawRecordByUuid(String table, String uuid) async {
+  Future<Map<String, Object?>?> getRawRecordByUuid(
+    String table,
+    String uuid,
+  ) async {
     final db = await initialize();
     final rows = await db.query(
       table,
@@ -671,10 +686,7 @@ class AppDatabase {
 
     final db = await initialize();
     final rows = await db.rawQuery('PRAGMA table_info("$table")');
-    final columns = rows
-        .map((row) => row['name'])
-        .whereType<String>()
-        .toSet();
+    final columns = rows.map((row) => row['name']).whereType<String>().toSet();
     _tableColumnsCache[table] = columns;
     return columns;
   }
@@ -763,10 +775,7 @@ class AppDatabase {
   // ── Utilisateurs CRUD ─────────────────────────────────────────────────────
 
   Future<List<Utilisateur>> getAllUtilisateurs() async {
-    final rows = await smartQuery(
-      'utilisateurs',
-      orderBy: 'nom_complet ASC',
-    );
+    final rows = await smartQuery('utilisateurs', orderBy: 'nom_complet ASC');
     return rows.map(Utilisateur.fromMap).toList();
   }
 
@@ -821,11 +830,7 @@ class AppDatabase {
   }
 
   Future<void> deleteUtilisateur(String uuid) async {
-    await smartDelete(
-      'utilisateurs',
-      where: 'uuid = ?',
-      whereArgs: [uuid],
-    );
+    await smartDelete('utilisateurs', where: 'uuid = ?', whereArgs: [uuid]);
   }
 
   // ── Clients CRUD ─────────────────────────────────────────────────────────────────
@@ -872,7 +877,13 @@ class AppDatabase {
   }) async {
     await smartUpdate(
       'clients',
-      {'nom': nom, 'adresse': adresse, 'telephone': telephone, 'email': email, 'type_client': typeClient},
+      {
+        'nom': nom,
+        'adresse': adresse,
+        'telephone': telephone,
+        'email': email,
+        'type_client': typeClient,
+      },
       where: 'uuid = ?',
       whereArgs: [uuid],
     );
@@ -913,7 +924,12 @@ class AppDatabase {
   }) async {
     await smartUpdate(
       'camions',
-      {'marque': marque, 'plaque': plaque, 'modele': modele, 'capacite': capacite},
+      {
+        'marque': marque,
+        'plaque': plaque,
+        'modele': modele,
+        'capacite': capacite,
+      },
       where: 'uuid = ?',
       whereArgs: [uuid],
     );
@@ -970,7 +986,11 @@ class AppDatabase {
   }
 
   Future<void> deleteChauffeurConvoyeur(String uuid) async {
-    await smartDelete('chauffeurs_convoyeurs', where: 'uuid = ?', whereArgs: [uuid]);
+    await smartDelete(
+      'chauffeurs_convoyeurs',
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
   }
 
   // ── Dossiers CRUD ─────────────────────────────────────────────────────────
@@ -1107,7 +1127,8 @@ class AppDatabase {
   Future<List<Dossier>> getActiveDossiers() async {
     final rows = await smartQuery(
       'dossiers',
-      where: "LOWER(COALESCE(statut, '')) NOT IN ('clôturé', 'cloture', 'annulé', 'annule')",
+      where:
+          "LOWER(COALESCE(statut, '')) NOT IN ('clôturé', 'cloture', 'annulé', 'annule')",
       orderBy: 'numero_bl ASC',
     );
     return rows.map(Dossier.fromMap).toList();
@@ -1189,11 +1210,17 @@ class AppDatabase {
   }
 
   Future<void> deleteConteneur(String uuid) async {
-    await smartDelete('detail_conteneurs', where: 'conteneur_uuid = ?', whereArgs: [uuid]);
+    await smartDelete(
+      'detail_conteneurs',
+      where: 'conteneur_uuid = ?',
+      whereArgs: [uuid],
+    );
     await smartDelete('conteneurs', where: 'uuid = ?', whereArgs: [uuid]);
   }
 
-  Future<List<DetailConteneur>> getDetailsByConteneur(String conteneurUuid) async {
+  Future<List<DetailConteneur>> getDetailsByConteneur(
+    String conteneurUuid,
+  ) async {
     final rows = await smartQuery(
       'detail_conteneurs',
       where: 'conteneur_uuid = ?',
@@ -1219,12 +1246,18 @@ class AppDatabase {
   }
 
   Future<void> deleteDetailConteneur(String uuid) async {
-    await smartDelete('detail_conteneurs', where: 'uuid = ?', whereArgs: [uuid]);
+    await smartDelete(
+      'detail_conteneurs',
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
   }
 
   // ── Interchange CRUD ──────────────────────────────────────────────────────
 
-  Future<List<Interchange>> getInterchangesByConteneur(String conteneurUuid) async {
+  Future<List<Interchange>> getInterchangesByConteneur(
+    String conteneurUuid,
+  ) async {
     final rows = await smartQuery(
       'interchange',
       where: 'conteneur_uuid = ?',
@@ -1322,7 +1355,9 @@ class AppDatabase {
 
     if (sourceStatuses != null && sourceStatuses.isNotEmpty) {
       final placeholders = sourceStatuses.map((_) => '?').join(', ');
-      whereClauses.add("LOWER(COALESCE(v.statut, ds.statut, '')) IN ($placeholders)");
+      whereClauses.add(
+        "LOWER(COALESCE(v.statut, ds.statut, '')) IN ($placeholders)",
+      );
       args.addAll(sourceStatuses.map((status) => status.toLowerCase()));
     }
   }
@@ -1368,16 +1403,29 @@ class AppDatabase {
     String? includeSourceUuid,
   }) async {
     final db = await initialize();
-    final isVoyage = libelle == 'Voyage Camion' || libelle == 'Voyage camion' || libelle == 'Retour Camion avec Charge';
+    final isVoyage =
+        libelle == 'Voyage Camion' ||
+        libelle == 'Voyage camion' ||
+        libelle == 'Retour Camion avec Charge';
     final table = isVoyage ? 'voyages' : 'dossiers';
     final labelColumn = isVoyage ? 'numero_voyage' : 'numero_bl';
 
     final excludedStatuses = isVoyage
         ? <String>['annulé', 'annule', 'terminé', 'termine']
-        : <String>['annulé', 'annule', 'terminé', 'termine', 'clôturé', 'cloturé', 'clôture', 'cloture'];
+        : <String>[
+            'annulé',
+            'annule',
+            'terminé',
+            'termine',
+            'clôturé',
+            'cloturé',
+            'clôture',
+            'cloture',
+          ];
 
     final placeholders = excludedStatuses.map((_) => '?').join(', ');
-    var sql = '''
+    var sql =
+        '''
       SELECT uuid, $labelColumn AS label, statut
       FROM $table
       WHERE id > 0
@@ -1415,9 +1463,15 @@ class AppDatabase {
     final db = await initialize();
     final whereClauses = <String>['da.id > 0'];
     final args = <Object?>[];
-    _appendDepotArgentFilters(whereClauses, args, search: search, sourceStatuses: sourceStatuses);
+    _appendDepotArgentFilters(
+      whereClauses,
+      args,
+      search: search,
+      sourceStatuses: sourceStatuses,
+    );
 
-    var sql = '''
+    var sql =
+        '''
       SELECT
         da.*, 
         m.nom AS monnaie_nom,
@@ -1453,18 +1507,20 @@ class AppDatabase {
     final db = await initialize();
     final whereClauses = <String>['da.id > 0'];
     final args = <Object?>[];
-    _appendDepotArgentFilters(whereClauses, args, search: search, sourceStatuses: sourceStatuses);
+    _appendDepotArgentFilters(
+      whereClauses,
+      args,
+      search: search,
+      sourceStatuses: sourceStatuses,
+    );
 
-    final rows = await db.rawQuery(
-      '''
+    final rows = await db.rawQuery('''
       SELECT COUNT(*) AS total
       FROM $table da
       LEFT JOIN voyages v ON v.uuid = da.source_uuid AND v.id > 0
       LEFT JOIN dossiers ds ON ds.uuid = da.source_uuid AND ds.id > 0
       WHERE ${whereClauses.join(' AND ')}
-      ''',
-      args,
-    );
+      ''', args);
     return ((rows.first['total'] as num?) ?? 0).toInt();
   }
 
@@ -1617,9 +1673,15 @@ class AppDatabase {
     final db = await initialize();
     final whereClauses = <String>['d.id > 0'];
     final args = <Object?>[];
-    _appendDepenseFilters(whereClauses, args, search: search, valideOnly: valideOnly);
+    _appendDepenseFilters(
+      whereClauses,
+      args,
+      search: search,
+      valideOnly: valideOnly,
+    );
 
-    var sql = '''
+    var sql =
+        '''
       SELECT
         d.*,
         m.nom AS monnaie_nom,
@@ -1653,17 +1715,19 @@ class AppDatabase {
     final db = await initialize();
     final whereClauses = <String>['d.id > 0'];
     final args = <Object?>[];
-    _appendDepenseFilters(whereClauses, args, search: search, valideOnly: valideOnly);
+    _appendDepenseFilters(
+      whereClauses,
+      args,
+      search: search,
+      valideOnly: valideOnly,
+    );
 
-    final rows = await db.rawQuery(
-      '''
+    final rows = await db.rawQuery('''
       SELECT COUNT(*) AS total
       FROM $table d
       LEFT JOIN monnaies m ON m.uuid = d.monnaie_uuid AND m.id > 0
       WHERE ${whereClauses.join(' AND ')}
-      ''',
-      args,
-    );
+      ''', args);
     return ((rows.first['total'] as num?) ?? 0).toInt();
   }
 
@@ -1761,12 +1825,7 @@ class AppDatabase {
     if (table == 'depenses_makoso') {
       row['dossier_uuid'] = dossierUuid;
     }
-    await smartUpdate(
-      table,
-      row,
-      where: 'uuid = ?',
-      whereArgs: [uuid],
-    );
+    await smartUpdate(table, row, where: 'uuid = ?', whereArgs: [uuid]);
   }
 
   Future<void> deleteDepense(String uuid, {required String table}) async {
@@ -1786,7 +1845,8 @@ class AppDatabase {
     ''');
     return {
       for (final row in rows)
-        row['dossier_uuid'] as String: (row['total'] as num?)?.toDouble() ?? 0.0,
+        row['dossier_uuid'] as String:
+            (row['total'] as num?)?.toDouble() ?? 0.0,
     };
   }
 
@@ -1871,14 +1931,40 @@ class AppDatabase {
     );
   }
 
-  Future<String> getNextVoyageNumber() async {
-    final db = await initialize();
-    final result = await db.rawQuery(
-      'SELECT COUNT(*) AS cnt FROM voyages WHERE id > 0 AND valide = 1',
+  String _voyageUserPrefix(String nomUtilisateur) {
+    final letters = nomUtilisateur.toUpperCase().replaceAll(
+      RegExp(r'[^A-Z]'),
+      '',
     );
-    final count = (result.first['cnt'] as int?) ?? 0;
-    final next = count + 1;
-    return 'V-${next.toString().padLeft(3, '0')}';
+    final padded = letters.isEmpty ? 'USR' : letters.padRight(3, 'X');
+    return padded.substring(0, 3);
+  }
+
+  Future<String> getNextVoyageNumber(String nomUtilisateur) async {
+    final db = await initialize();
+    final now = DateTime.now();
+    final prefix =
+        '${_voyageUserPrefix(nomUtilisateur)}-${(now.year % 100).toString().padLeft(2, '0')}-';
+    final rows = await db.query(
+      'voyages',
+      columns: ['numero_voyage'],
+      where: 'id > 0 AND numero_voyage LIKE ?',
+      whereArgs: ['$prefix%'],
+    );
+    final numberPattern = RegExp('^${RegExp.escape(prefix)}(\\d{3})\$');
+    var maxSequence = 0;
+    for (final row in rows) {
+      final numeroVoyage = row['numero_voyage'] as String?;
+      if (numeroVoyage == null) continue;
+      final match = numberPattern.firstMatch(numeroVoyage);
+      if (match == null) continue;
+      final sequence = int.tryParse(match.group(1)!);
+      if (sequence != null && sequence > maxSequence) {
+        maxSequence = sequence;
+      }
+    }
+    final next = maxSequence + 1;
+    return '$prefix${next.toString().padLeft(3, '0')}';
   }
 
   Future<void> validateVoyage(String uuid, String numeroVoyage) async {
@@ -1931,22 +2017,36 @@ class AppDatabase {
   Future<List<Map<String, Object?>>> getDashboardFinancialRows({
     required String depotTable,
     required String depenseTable,
-    String? fromDate, // exclude cloture date itself: uses date_paiement > fromDate
-    String? toDate,   // inclusive: uses date_paiement <= toDate
+    String?
+    fromDate, // exclude cloture date itself: uses date_paiement > fromDate
+    String? toDate, // inclusive: uses date_paiement <= toDate
   }) async {
     final db = await initialize();
 
     final dArgs = <Object?>[];
     var dCond = '';
-    if (fromDate != null) { dCond += ' AND d.date_paiement > ?'; dArgs.add(fromDate); }
-    if (toDate != null)   { dCond += ' AND d.date_paiement <= ?'; dArgs.add(toDate); }
+    if (fromDate != null) {
+      dCond += ' AND d.date_paiement > ?';
+      dArgs.add(fromDate);
+    }
+    if (toDate != null) {
+      dCond += ' AND d.date_paiement <= ?';
+      dArgs.add(toDate);
+    }
 
     final eArgs = <Object?>[];
     var eCond = '';
-    if (fromDate != null) { eCond += ' AND e.date > ?'; eArgs.add(fromDate); }
-    if (toDate != null)   { eCond += ' AND e.date <= ?'; eArgs.add(toDate); }
+    if (fromDate != null) {
+      eCond += ' AND e.date > ?';
+      eArgs.add(fromDate);
+    }
+    if (toDate != null) {
+      eCond += ' AND e.date <= ?';
+      eArgs.add(toDate);
+    }
 
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT
         m.uuid        AS monnaie_uuid,
         m.nom         AS nom,
@@ -1970,7 +2070,9 @@ class AppDatabase {
           SELECT DISTINCT monnaie_uuid FROM $depenseTable WHERE monnaie_uuid IS NOT NULL AND id > 0
         )
       ORDER BY m.nom ASC
-    ''', [...dArgs, ...eArgs]);
+    ''',
+      [...dArgs, ...eArgs],
+    );
     return rows.toList();
   }
 
@@ -2004,7 +2106,8 @@ class AppDatabase {
   Future<List<Map<String, Object?>>> getDossiersEnRetard() async {
     final db = await initialize();
     final today = DateTime.now().toIso8601String().substring(0, 10);
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT
         dos.uuid,
         dos.numero_bl,
@@ -2024,7 +2127,9 @@ class AppDatabase {
         )
       ORDER BY
         MIN(dos.date_paiement_30_draft, dos.date_paiement_30_pn, dos.date_paiement_40_matadi) ASC
-    ''', [today, today, today]);
+    ''',
+      [today, today, today],
+    );
     return rows.toList();
   }
 
@@ -2118,13 +2223,25 @@ class AppDatabase {
 
     final dArgs = <Object?>[];
     var dCond = '';
-    if (fromDate != null) { dCond += ' AND da.date_paiement > ?'; dArgs.add(fromDate); }
-    if (toDate != null)   { dCond += ' AND da.date_paiement <= ?'; dArgs.add(toDate); }
+    if (fromDate != null) {
+      dCond += ' AND da.date_paiement > ?';
+      dArgs.add(fromDate);
+    }
+    if (toDate != null) {
+      dCond += ' AND da.date_paiement <= ?';
+      dArgs.add(toDate);
+    }
 
     final eArgs = <Object?>[];
     var eCond = '';
-    if (fromDate != null) { eCond += ' AND dep.date > ?'; eArgs.add(fromDate); }
-    if (toDate != null)   { eCond += ' AND dep.date <= ?'; eArgs.add(toDate); }
+    if (fromDate != null) {
+      eCond += ' AND dep.date > ?';
+      eArgs.add(fromDate);
+    }
+    if (toDate != null) {
+      eCond += ' AND dep.date <= ?';
+      eArgs.add(toDate);
+    }
 
     // Args order: total_depot(dArgs), total_depense_voyage(eArgs),
     //             total_depense_retour(eArgs), total_depense_panne(eArgs)
@@ -2199,7 +2316,9 @@ class AppDatabase {
       WHERE s.id > 0
       ORDER BY s.nom_company ASC, s.date_cloture DESC, m.sigle ASC
     ''');
-    return rows.map((r) => Solde.fromMap(Map<String, Object?>.from(r))).toList();
+    return rows
+        .map((r) => Solde.fromMap(Map<String, Object?>.from(r)))
+        .toList();
   }
 
   /// Insère un solde manuellement.
@@ -2258,7 +2377,8 @@ class AppDatabase {
         final monnaieSigle = monnaieRow['sigle'] as String?;
 
         // Dernier solde pour cette combinaison
-        final lastRows = await db.rawQuery('''
+        final lastRows = await db.rawQuery(
+          '''
           SELECT montant, date_cloture
           FROM solde
           WHERE id > 0
@@ -2266,7 +2386,9 @@ class AppDatabase {
             AND monnaie_uuid = ?
           ORDER BY date_cloture DESC
           LIMIT 1
-        ''', [companyLabel, monnaieUuid]);
+        ''',
+          [companyLabel, monnaieUuid],
+        );
 
         final lastMontant = lastRows.isNotEmpty
             ? ((lastRows.first['montant'] as num?) ?? 0.0).toDouble()
@@ -2290,8 +2412,7 @@ class AppDatabase {
               ''',
           lastDate != null ? [monnaieUuid, lastDate] : [monnaieUuid],
         );
-        final sumDepot =
-            ((depotRows.first['total'] as num?) ?? 0.0).toDouble();
+        final sumDepot = ((depotRows.first['total'] as num?) ?? 0.0).toDouble();
 
         // Somme des dépenses validées depuis la dernière date (incluse)
         final depenseRows = await db.rawQuery(
@@ -2308,8 +2429,8 @@ class AppDatabase {
               ''',
           lastDate != null ? [monnaieUuid, lastDate] : [monnaieUuid],
         );
-        final sumDepense =
-            ((depenseRows.first['total'] as num?) ?? 0.0).toDouble();
+        final sumDepense = ((depenseRows.first['total'] as num?) ?? 0.0)
+            .toDouble();
 
         final nouveauMontant = lastMontant + sumDepot - sumDepense;
 
@@ -2322,15 +2443,17 @@ class AppDatabase {
           'nom_company': companyLabel,
         });
 
-        inserted.add(Solde(
-          uuid: uuid,
-          monnaieUuid: monnaieUuid,
-          montant: nouveauMontant,
-          dateCloture: today,
-          nomCompany: companyLabel,
-          monnaieNom: monnaieNom,
-          monnaieSigle: monnaieSigle,
-        ));
+        inserted.add(
+          Solde(
+            uuid: uuid,
+            monnaieUuid: monnaieUuid,
+            montant: nouveauMontant,
+            dateCloture: today,
+            nomCompany: companyLabel,
+            monnaieNom: monnaieNom,
+            monnaieSigle: monnaieSigle,
+          ),
+        );
       }
     }
 
@@ -2347,15 +2470,28 @@ class AppDatabase {
 
     final dArgs = <Object?>[];
     var dCond = '';
-    if (fromDate != null) { dCond += ' AND da.date_paiement > ?'; dArgs.add(fromDate); }
-    if (toDate != null)   { dCond += ' AND da.date_paiement <= ?'; dArgs.add(toDate); }
+    if (fromDate != null) {
+      dCond += ' AND da.date_paiement > ?';
+      dArgs.add(fromDate);
+    }
+    if (toDate != null) {
+      dCond += ' AND da.date_paiement <= ?';
+      dArgs.add(toDate);
+    }
 
     final eArgs = <Object?>[];
     var eCond = '';
-    if (fromDate != null) { eCond += ' AND dep.date > ?'; eArgs.add(fromDate); }
-    if (toDate != null)   { eCond += ' AND dep.date <= ?'; eArgs.add(toDate); }
+    if (fromDate != null) {
+      eCond += ' AND dep.date > ?';
+      eArgs.add(fromDate);
+    }
+    if (toDate != null) {
+      eCond += ' AND dep.date <= ?';
+      eArgs.add(toDate);
+    }
 
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT
         m.sigle AS sigle,
         m.nom   AS monnaie_nom,
@@ -2377,7 +2513,9 @@ class AppDatabase {
       FROM monnaies m
       WHERE m.id > 0
       ORDER BY m.sigle ASC
-    ''', [...dArgs, ...eArgs]);
+    ''',
+      [...dArgs, ...eArgs],
+    );
     return rows.toList();
   }
 
@@ -2386,12 +2524,15 @@ class AppDatabase {
   /// Retourne toutes les dates de clôture distinctes pour une company (ordre ASC).
   Future<List<String>> getClotureDatesForCompany(String nomCompany) async {
     final db = await initialize();
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT DISTINCT date_cloture
       FROM solde
       WHERE id > 0 AND nom_company = ? AND date_cloture IS NOT NULL
       ORDER BY date_cloture ASC
-    ''', [nomCompany]);
+    ''',
+      [nomCompany],
+    );
     return rows.map((r) => r['date_cloture'] as String).toList();
   }
 
@@ -2404,7 +2545,9 @@ class AppDatabase {
   }) async {
     final db = await initialize();
     final dateWhere = avantStricte != null ? 'AND date_cloture < ?' : '';
-    final args = avantStricte != null ? [nomCompany, avantStricte] : [nomCompany];
+    final args = avantStricte != null
+        ? [nomCompany, avantStricte]
+        : [nomCompany];
 
     final maxRows = await db.rawQuery('''
       SELECT monnaie_uuid, MAX(date_cloture) AS max_date
@@ -2420,7 +2563,8 @@ class AppDatabase {
       final monnaieUuid = mr['monnaie_uuid'] as String?;
       final maxDate = mr['max_date'] as String?;
       if (monnaieUuid == null || maxDate == null) continue;
-      final soldeRows = await db.rawQuery('''
+      final soldeRows = await db.rawQuery(
+        '''
         SELECT s.monnaie_uuid, s.montant, s.date_cloture,
                m.nom AS monnaie_nom, m.sigle AS monnaie_sigle
         FROM solde s
@@ -2428,7 +2572,9 @@ class AppDatabase {
         WHERE s.id > 0 AND s.nom_company = ?
           AND s.monnaie_uuid = ? AND s.date_cloture = ?
         LIMIT 1
-      ''', [nomCompany, monnaieUuid, maxDate]);
+      ''',
+        [nomCompany, monnaieUuid, maxDate],
+      );
       results.addAll(soldeRows);
     }
     return results;
@@ -2444,13 +2590,25 @@ class AppDatabase {
 
     final dArgs = <Object?>[];
     var dCond = '';
-    if (fromDate != null) { dCond += ' AND da.date_paiement > ?'; dArgs.add(fromDate); }
-    if (toDate != null)   { dCond += ' AND da.date_paiement <= ?'; dArgs.add(toDate); }
+    if (fromDate != null) {
+      dCond += ' AND da.date_paiement > ?';
+      dArgs.add(fromDate);
+    }
+    if (toDate != null) {
+      dCond += ' AND da.date_paiement <= ?';
+      dArgs.add(toDate);
+    }
 
     final eArgs = <Object?>[];
     var eCond = '';
-    if (fromDate != null) { eCond += ' AND dep.date > ?'; eArgs.add(fromDate); }
-    if (toDate != null)   { eCond += ' AND dep.date <= ?'; eArgs.add(toDate); }
+    if (fromDate != null) {
+      eCond += ' AND dep.date > ?';
+      eArgs.add(fromDate);
+    }
+    if (toDate != null) {
+      eCond += ' AND dep.date <= ?';
+      eArgs.add(toDate);
+    }
 
     // Arg order: total_depot(dArgs), total_depense(eArgs), EXISTS depot(dArgs), EXISTS depense(eArgs)
     final allArgs = [...dArgs, ...eArgs, ...dArgs, ...eArgs];
