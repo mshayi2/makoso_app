@@ -14,6 +14,7 @@ import 'depot_argent_screen.dart';
 import 'depenses_screen.dart';
 import 'dossiers_screen.dart';
 import 'login_screen.dart';
+import 'rapport_caisse_screen.dart';
 import 'rapport_mensuel_makoso_screen.dart';
 import 'rapport_mensuel_marina_trans_screen.dart';
 import 'tableau_de_bord_screen.dart';
@@ -34,6 +35,7 @@ enum _NavOption {
   camions,
   utilisateurs,
   cloture,
+  rapportCaisse,
   rapportMensuel,
 }
 
@@ -56,6 +58,7 @@ const _navItems = [
   _NavItem(_NavOption.camions, Icons.airport_shuttle_outlined, 'Camions'),
   _NavItem(_NavOption.utilisateurs, Icons.manage_accounts_outlined, 'Utilisateurs'),
   _NavItem(_NavOption.cloture, Icons.lock_clock_outlined, 'Clôture'),
+  _NavItem(_NavOption.rapportCaisse, Icons.receipt_long_outlined, 'Rapport'),
   _NavItem(_NavOption.rapportMensuel, Icons.bar_chart_outlined, 'Rapport mensuel'),
 ];
 
@@ -89,7 +92,9 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    _selected = widget.user.role == 'caissier'
+    _selected = widget.user.role == 'caissier' ||
+        (widget.user.role == 'collaborateur' &&
+          widget.company == AppCompany.makoso)
         ? _NavOption.depotArgent
         : widget.user.role == 'opérateur logistique'
             ? (widget.company == AppCompany.marian
@@ -234,6 +239,7 @@ class _MainScreenState extends State<MainScreen> {
       _NavOption.dossiers => DossiersScreen(user: widget.user),
       _NavOption.conteneursMakoso => ConteneursMakosoScreen(user: widget.user),
       _NavOption.cloture => ClotureScreen(company: widget.company),
+        _NavOption.rapportCaisse => RapportCaisseScreen(company: widget.company),
       _NavOption.rapportMensuel => widget.company == AppCompany.makoso
           ? const RapportMensuelMakosoScreen()
           : const RapportMensuelMarinaTransScreen(),
@@ -546,6 +552,7 @@ class _MainScreenState extends State<MainScreen> {
                           _NavOption.clients,
                           _NavOption.utilisateurs,
                           _NavOption.cloture,
+                          _NavOption.rapportCaisse,
                           _NavOption.rapportMensuel,
                         };
                         const marianOptions = {
@@ -558,6 +565,7 @@ class _MainScreenState extends State<MainScreen> {
                           _NavOption.camions,
                           _NavOption.utilisateurs,
                           _NavOption.cloture,
+                          _NavOption.rapportCaisse,
                           _NavOption.rapportMensuel,
                         };
                         if (isMakoso && !makosOptions.contains(item.option)) return false;
@@ -567,7 +575,8 @@ class _MainScreenState extends State<MainScreen> {
                         final role = widget.user.role;
                         if (role == 'caissier') {
                           return item.option == _NavOption.depotArgent ||
-                              item.option == _NavOption.depenses;
+                          item.option == _NavOption.depenses ||
+                          item.option == _NavOption.rapportCaisse;
                         }
                         if (role == 'gestionnaire matadi') {
                           // marian only: voyages and depenses
@@ -597,12 +606,20 @@ class _MainScreenState extends State<MainScreen> {
                         if (item.option == _NavOption.utilisateurs) {
                           return role == 'admin';
                         }
+                        if (role == 'collaborateur' &&
+                            isMakoso &&
+                            item.option == _NavOption.tableauDeBord) {
+                          return false;
+                        }
                         // Clôture et rapport : admin, boss, collaborateur seulement
                         if (item.option == _NavOption.cloture ||
                             item.option == _NavOption.rapportMensuel) {
                           return role == 'admin' ||
                               role == 'boss' ||
                               role == 'collaborateur';
+                        }
+                        if (item.option == _NavOption.rapportCaisse) {
+                          return false;
                         }
                         return true;
                       }).map((item) {
@@ -713,34 +730,4 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-}
-
-// ── Rapport mensuel (placeholder) ────────────────────────────────────────────
-class _RapportMensuelPlaceholder extends StatelessWidget {
-  const _RapportMensuelPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.bar_chart_outlined, size: 64, color: Colors.grey),
-          SizedBox(height: 16),
-          Text(
-            'Rapport mensuel',
-            style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.black54),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Cette fonctionnalité sera disponible prochainement.',
-            style: TextStyle(color: Colors.grey),
-          ),
-        ],
-      ),
-    );
-  }
 }

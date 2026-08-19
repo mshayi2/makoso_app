@@ -4,6 +4,9 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../models/depense.dart';
+import '../models/depot_argent.dart';
+
 /// Generates printable PDF reports for MAKOSO Services and MARINA Trans.
 /// Uses built-in Helvetica fonts (no network required).
 class RapportPdf {
@@ -124,6 +127,142 @@ class RapportPdf {
     ));
 
     return doc.save();
+  }
+
+  /// Builds the cashier's monthly list of deposits and expenses.
+  static Future<Uint8List> buildCashMovements({
+    required String companyName,
+    required String periodeLabel,
+    required List<DepotArgentRecord> depots,
+    required List<DepenseRecord> depenses,
+  }) async {
+    final font = pw.Font.helvetica();
+    final fontBold = pw.Font.helveticaBold();
+    final doc = pw.Document(title: 'Rapport mensuel $companyName');
+
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4.landscape,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+      header: (ctx) => _docHeader(companyName, periodeLabel, font, fontBold),
+      footer: (ctx) => _docFooter(ctx, font),
+      build: (ctx) => [
+        _sectionTitle("Depots d'argent (${depots.length})", fontBold),
+        pw.SizedBox(height: 6),
+        if (depots.isEmpty)
+          _emptyNote('Aucun depot pour cette periode.', font)
+        else
+          _cashDepotTable(depots, font, fontBold),
+        pw.SizedBox(height: 20),
+        _sectionTitle('Depenses (${depenses.length})', fontBold),
+        pw.SizedBox(height: 6),
+        if (depenses.isEmpty)
+          _emptyNote('Aucune depense pour cette periode.', font)
+        else
+          _cashDepenseTable(depenses, font, fontBold),
+      ],
+    ));
+
+    return doc.save();
+  }
+
+  static pw.Widget _cashDepotTable(
+    List<DepotArgentRecord> rows,
+    pw.Font font,
+    pw.Font fontBold,
+  ) {
+    return pw.TableHelper.fromTextArray(
+      headers: const [
+        'Date',
+        'Libelle',
+        'Reference',
+        'Montant',
+        'Monnaie',
+        'Agent',
+        'Observation',
+      ],
+      data: rows
+          .map((row) => [
+                _formatDate(row.datePaiement),
+                row.libelle ?? '-',
+                row.sourceLabel ?? '-',
+                _n(row.montant),
+                row.monnaieSigle ?? row.monnaieNom ?? '-',
+                row.agent ?? '-',
+                row.observation ?? '-',
+              ])
+          .toList(),
+      headerStyle: pw.TextStyle(font: fontBold, fontSize: 7, color: PdfColors.white),
+      cellStyle: pw.TextStyle(font: font, fontSize: 7, color: _cDark),
+      headerDecoration: pw.BoxDecoration(color: _cHeaderBg),
+      oddRowDecoration: pw.BoxDecoration(color: _cRowAlt),
+      border: pw.TableBorder.all(color: _cBorder, width: 0.4),
+      cellAlignment: pw.Alignment.centerLeft,
+      cellAlignments: {3: pw.Alignment.centerRight},
+      columnWidths: {
+        0: const pw.FixedColumnWidth(48),
+        1: const pw.FlexColumnWidth(1.3),
+        2: const pw.FlexColumnWidth(1.1),
+        3: const pw.FixedColumnWidth(62),
+        4: const pw.FixedColumnWidth(48),
+        5: const pw.FlexColumnWidth(),
+        6: const pw.FlexColumnWidth(1.5),
+      },
+    );
+  }
+
+  static pw.Widget _cashDepenseTable(
+    List<DepenseRecord> rows,
+    pw.Font font,
+    pw.Font fontBold,
+  ) {
+    return pw.TableHelper.fromTextArray(
+      headers: const [
+        'Date',
+        'Libelle',
+        'Montant',
+        'Monnaie',
+        'Statut',
+        'Validateur',
+        'Observation',
+      ],
+      data: rows
+          .map((row) => [
+                _formatDate(row.date),
+                row.libelle ?? '-',
+                _n(row.montant),
+                row.monnaieSigle ?? row.monnaieNom ?? '-',
+                row.validationStatus,
+                row.validateurNom ?? '-',
+                row.observation ?? '-',
+              ])
+          .toList(),
+      headerStyle: pw.TextStyle(font: fontBold, fontSize: 7, color: PdfColors.white),
+      cellStyle: pw.TextStyle(font: font, fontSize: 7, color: _cDark),
+      headerDecoration: pw.BoxDecoration(color: _cHeaderBg),
+      oddRowDecoration: pw.BoxDecoration(color: _cRowAlt),
+      border: pw.TableBorder.all(color: _cBorder, width: 0.4),
+      cellAlignment: pw.Alignment.centerLeft,
+      cellAlignments: {2: pw.Alignment.centerRight},
+      columnWidths: {
+        0: const pw.FixedColumnWidth(48),
+        1: const pw.FlexColumnWidth(1.4),
+        2: const pw.FixedColumnWidth(62),
+        3: const pw.FixedColumnWidth(48),
+        4: const pw.FixedColumnWidth(55),
+        5: const pw.FlexColumnWidth(),
+        6: const pw.FlexColumnWidth(1.5),
+      },
+    );
+  }
+
+  static String _formatDate(String? value) {
+    if (value == null || value.isEmpty) return '-';
+    try {
+      return _dateFmt.format(DateTime.parse(value));
+    } catch (_) {
+      return value;
+    }
   }
 
   // ── Document structure ─────────────────────────────────────────────────────

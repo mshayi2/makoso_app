@@ -1336,6 +1336,8 @@ class AppDatabase {
     List<Object?> args, {
     String? search,
     List<String>? sourceStatuses,
+    String? fromDate,
+    String? toDate,
   }) {
     final normalizedSearch = search?.trim().toLowerCase();
     if (normalizedSearch != null && normalizedSearch.isNotEmpty) {
@@ -1359,6 +1361,15 @@ class AppDatabase {
         "LOWER(COALESCE(v.statut, ds.statut, '')) IN ($placeholders)",
       );
       args.addAll(sourceStatuses.map((status) => status.toLowerCase()));
+    }
+
+    if (fromDate != null) {
+      whereClauses.add("COALESCE(da.date_paiement, '') > ?");
+      args.add(fromDate);
+    }
+    if (toDate != null) {
+      whereClauses.add("COALESCE(da.date_paiement, '') <= ?");
+      args.add(toDate);
     }
   }
 
@@ -1457,6 +1468,8 @@ class AppDatabase {
     required String table,
     String? search,
     List<String>? sourceStatuses,
+    String? fromDate,
+    String? toDate,
     int? limit = 250,
     int offset = 0,
   }) async {
@@ -1468,6 +1481,8 @@ class AppDatabase {
       args,
       search: search,
       sourceStatuses: sourceStatuses,
+      fromDate: fromDate,
+      toDate: toDate,
     );
 
     var sql =
@@ -1607,6 +1622,8 @@ class AppDatabase {
     List<Object?> args, {
     String? search,
     bool? valideOnly,
+    String? fromDate,
+    String? toDate,
   }) {
     final normalizedSearch = search?.trim().toLowerCase();
     if (normalizedSearch != null && normalizedSearch.isNotEmpty) {
@@ -1627,6 +1644,15 @@ class AppDatabase {
     if (valideOnly != null) {
       whereClauses.add('COALESCE(d.valide, 0) = ?');
       args.add(valideOnly ? 1 : 0);
+    }
+
+    if (fromDate != null) {
+      whereClauses.add("COALESCE(d.date, '') > ?");
+      args.add(fromDate);
+    }
+    if (toDate != null) {
+      whereClauses.add("COALESCE(d.date, '') <= ?");
+      args.add(toDate);
     }
   }
 
@@ -1667,6 +1693,8 @@ class AppDatabase {
     required String table,
     String? search,
     bool? valideOnly,
+    String? fromDate,
+    String? toDate,
     int? limit = 250,
     int offset = 0,
   }) async {
@@ -1678,6 +1706,8 @@ class AppDatabase {
       args,
       search: search,
       valideOnly: valideOnly,
+      fromDate: fromDate,
+      toDate: toDate,
     );
 
     var sql =
