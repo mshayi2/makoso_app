@@ -548,6 +548,9 @@ class AppDatabase {
 
   Future<List<Map<String, Object?>>> getPendingSyncRecords(String table) async {
     final db = await initialize();
+    await db.rawUpdate(
+      'UPDATE "$table" SET sync = -sync WHERE id < 0 AND sync > 0',
+    );
     final rows = await db.rawQuery('''
       SELECT *
       FROM "$table"
@@ -624,17 +627,29 @@ class AppDatabase {
     );
   }
 
-  Future<int> updateSyncValue(
+  Future<int> updateSyncValueIfUnchanged(
     String table, {
-    required String uuid,
+    required Map<String, Object?> sentRecord,
     required int newSync,
   }) async {
     final db = await initialize();
-    return db.update(
-      table,
-      {'sync': newSync},
-      where: 'uuid = ?',
-      whereArgs: [uuid],
+    final sanitized = await _sanitizeSyncRecord(table, sentRecord);
+    final uuid = sanitized.remove('uuid')?.toString();
+    sanitized.remove('sync');
+    if (uuid == null || uuid.isEmpty) {
+      return 0;
+    }
+
+    final whereClauses = <String>['uuid = ?', 'sync IS ?'];
+    final whereArgs = <Object?>[uuid, sentRecord['sync']];
+    for (final entry in sanitized.entries) {
+      whereClauses.add('"${entry.key}" IS ?');
+      whereArgs.add(entry.value);
+    }
+
+    return db.rawUpdate(
+      'UPDATE "$table" SET sync = ? WHERE ${whereClauses.join(' AND ')}',
+      [newSync, ...whereArgs],
     );
   }
 
@@ -1468,6 +1483,7 @@ class AppDatabase {
     required String table,
     String? search,
     List<String>? sourceStatuses,
+    String? sourceUuid,
     String? fromDate,
     String? toDate,
     int? limit = 250,
@@ -1484,6 +1500,10 @@ class AppDatabase {
       fromDate: fromDate,
       toDate: toDate,
     );
+    if (sourceUuid != null) {
+      whereClauses.add('da.source_uuid = ?');
+      args.add(sourceUuid);
+    }
 
     var sql =
         '''
@@ -1693,6 +1713,7 @@ class AppDatabase {
     required String table,
     String? search,
     bool? valideOnly,
+    String? dossierUuid,
     String? fromDate,
     String? toDate,
     int? limit = 250,
@@ -1709,6 +1730,10 @@ class AppDatabase {
       fromDate: fromDate,
       toDate: toDate,
     );
+    if (dossierUuid != null) {
+      whereClauses.add('d.dossier_uuid = ?');
+      args.add(dossierUuid);
+    }
 
     var sql =
         '''

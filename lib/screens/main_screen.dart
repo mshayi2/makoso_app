@@ -23,6 +23,23 @@ import 'voyages_screen.dart';
 
 enum AppCompany { makoso, marian }
 
+bool canAccessCompany(Utilisateur user, AppCompany company) {
+  final role = user.role?.toLowerCase().trim() ?? '';
+  if (role == 'gestionnaire kinshasa' || role == 'gestionnaire matadi') {
+    return company == AppCompany.marian;
+  }
+  if (role == 'opérateur logistique') {
+    return company == AppCompany.makoso;
+  }
+  return true;
+}
+
+List<AppCompany> accessibleCompanies(Utilisateur user) {
+  return AppCompany.values
+      .where((company) => canAccessCompany(user, company))
+      .toList();
+}
+
 enum _NavOption {
   tableauDeBord,
   depotArgent,
@@ -111,6 +128,12 @@ class _MainScreenState extends State<MainScreen> {
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
+        return;
+      }
+
+      if (!canAccessCompany(widget.user, widget.company)) {
+        final allowedCompany = accessibleCompanies(widget.user).first;
+        _replaceCompany(allowedCompany);
         return;
       }
 
@@ -436,20 +459,31 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   // ── Switch company ─────────────────────────────────────────────────────────
-  void _switchCompany() {
-    _syncTimer?.cancel();
+  AppCompany? get _otherAllowedCompany {
     final other = widget.company == AppCompany.makoso
         ? AppCompany.marian
         : AppCompany.makoso;
+    return canAccessCompany(widget.user, other) ? other : null;
+  }
+
+  void _replaceCompany(AppCompany company) {
+    _syncTimer?.cancel();
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => MainScreen(
           user: widget.user,
-          company: other,
+          company: company,
         ),
       ),
     );
+  }
+
+  void _switchCompany() {
+    final other = _otherAllowedCompany;
+    if (other != null) {
+      _replaceCompany(other);
+    }
   }
 
   // ── Logout ─────────────────────────────────────────────────────────────────
@@ -686,19 +720,21 @@ class _MainScreenState extends State<MainScreen> {
                         ),
                         const Divider(height: 1, color: Colors.white24),
                         const SizedBox(height: 4),
-                        ListTile(
-                          leading: const Icon(Icons.swap_horiz,
-                              color: Colors.white70),
-                          title: Text(
-                            widget.company == AppCompany.makoso
-                                ? 'Passer à MARINA Trans'
-                                : 'Passer à MAKOSO Services',
-                            style: const TextStyle(color: Colors.white70),
+                        if (_otherAllowedCompany != null) ...[
+                          ListTile(
+                            leading: const Icon(Icons.swap_horiz,
+                                color: Colors.white70),
+                            title: Text(
+                              widget.company == AppCompany.makoso
+                                  ? 'Passer à MARINA Trans'
+                                  : 'Passer à MAKOSO Services',
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                            onTap: _switchCompany,
                           ),
-                          onTap: _switchCompany,
-                        ),
-                        const Divider(height: 1, color: Colors.white24),
-                        const SizedBox(height: 4),
+                          const Divider(height: 1, color: Colors.white24),
+                          const SizedBox(height: 4),
+                        ],
                         ListTile(
                           leading: const Icon(Icons.logout,
                               color: Colors.white70),

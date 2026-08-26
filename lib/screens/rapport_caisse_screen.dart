@@ -6,6 +6,7 @@ import '../database/app_database.dart';
 import '../models/depense.dart';
 import '../models/depot_argent.dart';
 import '../services/rapport_pdf.dart';
+import '../widgets/horizontal_table_scroller.dart';
 import 'main_screen.dart';
 
 class _CashPeriod {
@@ -252,8 +253,7 @@ class _RapportCaisseScreenState extends State<RapportCaisseScreen> {
     if (_deposits.isEmpty) {
       return const _EmptyReport(message: 'Aucun dépôt pour cette période.');
     }
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
+    return HorizontalTableScroller(
       child: DataTable(
         columns: const [
           DataColumn(label: Text('Date')),
@@ -283,8 +283,7 @@ class _RapportCaisseScreenState extends State<RapportCaisseScreen> {
     if (_expenses.isEmpty) {
       return const _EmptyReport(message: 'Aucune dépense pour cette période.');
     }
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
+    return HorizontalTableScroller(
       child: DataTable(
         columns: const [
           DataColumn(label: Text('Date')),

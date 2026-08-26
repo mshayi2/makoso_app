@@ -6,6 +6,7 @@ import '../models/depense.dart';
 import '../models/dossier.dart';
 import '../models/monnaie.dart';
 import '../models/utilisateur.dart';
+import '../widgets/horizontal_table_scroller.dart';
 import 'main_screen.dart' show AppCompany;
 
 const int _kDepensePageSize = 250;
@@ -1023,13 +1024,13 @@ class _DepensesScreenState extends State<DepensesScreen> {
               const Expanded(child: Center(child: Text('Aucune dépense trouvée.')))
             else
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
+                child: HorizontalTableScroller(
                   child: SingleChildScrollView(
                     child: DataTable(
                       headingRowColor: WidgetStateProperty.all(const Color(0xFF1A237E).withValues(alpha: 0.08)),
                       columnSpacing: 20,
                       columns: const [
+                        DataColumn(label: Text('Actions')),
                         DataColumn(label: Text('Date')),
                         DataColumn(label: Text('Libellé')),
                         DataColumn(label: Text('Montant')),
@@ -1038,7 +1039,6 @@ class _DepensesScreenState extends State<DepensesScreen> {
                         DataColumn(label: Text('Exécutée')),
                         DataColumn(label: Text('Validateur')),
                         DataColumn(label: Text('Observation')),
-                        DataColumn(label: Text('Actions')),
                       ],
                       rows: _depenses.map((depense) {
                         final isEditing = _editingDepense?.uuid == depense.uuid;
@@ -1051,6 +1051,23 @@ class _DepensesScreenState extends State<DepensesScreen> {
                             },
                           ),
                           cells: [
+                            DataCell(
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit_outlined, color: Color(0xFF1A237E)),
+                                    tooltip: 'Modifier',
+                                    onPressed: () => _startEdit(depense),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                    tooltip: 'Supprimer',
+                                    onPressed: () => _confirmDelete(depense),
+                                  ),
+                                ],
+                              ),
+                            ),
                             DataCell(Text(_formatDate(depense.date))),
                             DataCell(Text(depense.libelle ?? '-')),
                             DataCell(Text(depense.montant != null ? depense.montant!.toStringAsFixed(2) : '-')),
@@ -1080,23 +1097,6 @@ class _DepensesScreenState extends State<DepensesScreen> {
                             ),
                             DataCell(Text(depense.validateurNom ?? '-')),
                             DataCell(Text(depense.observation ?? '-')),
-                            DataCell(
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.edit_outlined, color: Color(0xFF1A237E)),
-                                    tooltip: 'Modifier',
-                                    onPressed: () => _startEdit(depense),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                    tooltip: 'Supprimer',
-                                    onPressed: () => _confirmDelete(depense),
-                                  ),
-                                ],
-                              ),
-                            ),
                           ],
                         );
                       }).toList(),

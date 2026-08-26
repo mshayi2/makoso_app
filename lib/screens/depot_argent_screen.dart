@@ -4,6 +4,7 @@ import '../database/app_database.dart';
 import '../models/depot_argent.dart';
 import '../models/monnaie.dart';
 import '../models/utilisateur.dart';
+import '../widgets/horizontal_table_scroller.dart';
 import 'main_screen.dart' show AppCompany;
 
 const int _kDepotPageSize = 250;
@@ -610,13 +611,13 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
               const Expanded(child: Center(child: Text('Aucun dépôt trouvé.')))
             else
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
+                child: HorizontalTableScroller(
                   child: SingleChildScrollView(
                     child: DataTable(
                       headingRowColor: WidgetStateProperty.all(const Color(0xFF1A237E).withValues(alpha: 0.08)),
                       columnSpacing: 20,
                       columns: const [
+                        DataColumn(label: Text('Actions')),
                         DataColumn(label: Text('Date')),
                         DataColumn(label: Text('Libellé')),
                         DataColumn(label: Text('Source')),
@@ -624,7 +625,6 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                         DataColumn(label: Text('Monnaie')),
                         DataColumn(label: Text('Agent')),
                         DataColumn(label: Text('Observation')),
-                        DataColumn(label: Text('Actions')),
                       ],
                       rows: _depots.map((depot) {
                         final isEditing = _editingDepot?.uuid == depot.uuid;
@@ -633,13 +633,6 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                             (states) => isEditing ? const Color(0xFF1A237E).withValues(alpha: 0.06) : null,
                           ),
                           cells: [
-                            DataCell(Text(_formatDate(depot.datePaiement))),
-                            DataCell(Text(depot.libelle ?? '-')),
-                            DataCell(Text(depot.sourceLabel ?? '-')),
-                            DataCell(Text(depot.montant != null ? depot.montant!.toStringAsFixed(2) : '-')),
-                            DataCell(Text(depot.monnaieLabel)),
-                            DataCell(Text(depot.agent ?? '-')),
-                            DataCell(Text(depot.observation ?? '-')),
                             DataCell(
                               Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -657,6 +650,13 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                                 ],
                               ),
                             ),
+                            DataCell(Text(_formatDate(depot.datePaiement))),
+                            DataCell(Text(depot.libelle ?? '-')),
+                            DataCell(Text(depot.sourceLabel ?? '-')),
+                            DataCell(Text(depot.montant != null ? depot.montant!.toStringAsFixed(2) : '-')),
+                            DataCell(Text(depot.monnaieLabel)),
+                            DataCell(Text(depot.agent ?? '-')),
+                            DataCell(Text(depot.observation ?? '-')),
                           ],
                         );
                       }).toList(),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
 import '../models/chauffeur_convoyeur.dart';
+import '../widgets/horizontal_table_scroller.dart';
 
 const List<String> _kFonctions = ['Chauffeur', 'Convoyeur'];
 
@@ -350,18 +351,17 @@ class _ChauffeursConvoyeursScreenState
               const Expanded(child: Center(child: Text('Aucun enregistrement trouvé.')))
             else
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
+                child: HorizontalTableScroller(
                   child: SingleChildScrollView(
                     child: DataTable(
                       headingRowColor: WidgetStateProperty.all(const Color(0xFF1A237E).withValues(alpha: 0.08)),
                       columnSpacing: 24,
                       columns: const [
+                        DataColumn(label: Text('Actions')),
                         DataColumn(label: Text('Nom')),
                         DataColumn(label: Text('Fonction')),
                         DataColumn(label: Text('Téléphone')),
                         DataColumn(label: Text('Date engagement')),
-                        DataColumn(label: Text('Actions')),
                       ],
                     rows: _filteredItems.map((item) {
                       final isEditing = _editingItem?.uuid == item.uuid;
@@ -370,6 +370,21 @@ class _ChauffeursConvoyeursScreenState
                           (states) => isEditing ? const Color(0xFF1A237E).withValues(alpha: 0.06) : null,
                         ),
                         cells: [
+                          DataCell(Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit_outlined, color: Color(0xFF1A237E)),
+                                tooltip: 'Modifier',
+                                onPressed: () => _startEdit(item),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                tooltip: 'Supprimer',
+                                onPressed: () => _confirmDelete(item),
+                              ),
+                            ],
+                          )),
                           DataCell(Text(item.nom)),
                           DataCell(
                             item.fonction != null
@@ -389,21 +404,6 @@ class _ChauffeursConvoyeursScreenState
                           ),
                           DataCell(Text(item.telephone ?? '-')),
                           DataCell(Text(_formatDate(item.dateEngagement))),
-                          DataCell(Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit_outlined, color: Color(0xFF1A237E)),
-                                tooltip: 'Modifier',
-                                onPressed: () => _startEdit(item),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                tooltip: 'Supprimer',
-                                onPressed: () => _confirmDelete(item),
-                              ),
-                            ],
-                          )),
                         ],
                       );
                     }).toList(),

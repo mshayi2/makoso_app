@@ -9,6 +9,7 @@ import '../models/detail_conteneur.dart';
 import '../models/dossier.dart';
 import '../models/interchange.dart';
 import '../models/utilisateur.dart';
+import '../widgets/horizontal_table_scroller.dart';
 
 const List<String> _kDimensions = ['20 Pieds', '40 Pieds'];
 
@@ -496,27 +497,20 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                       child: details.isEmpty
                           ? const Center(
                               child: Text('Aucun article pour ce conteneur.'))
-                          : SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
+                          : HorizontalTableScroller(
                               child: SingleChildScrollView(
                                 child: DataTable(
                                   headingRowColor: WidgetStateProperty.all(
                                       const Color(0xFF1A237E)
                                           .withValues(alpha: 0.08)),
                                   columns: const [
+                                    DataColumn(label: Text('Actions')),
                                     DataColumn(label: Text('Article')),
                                     DataColumn(label: Text('Quantité')),
                                     DataColumn(label: Text('Unité')),
-                                    DataColumn(label: Text('Actions')),
                                   ],
                                   rows: details
                                       .map((d) => DataRow(cells: [
-                                            DataCell(Text(d.nomArticle ?? '-')),
-                                            DataCell(Text(d.quantite != null
-                                                ? d.quantite!.toStringAsFixed(2)
-                                                : '-')),
-                                            DataCell(
-                                                Text(d.uniteMesure ?? '-')),
                                             DataCell(IconButton(
                                               icon: const Icon(
                                                   Icons.delete_outline,
@@ -525,6 +519,12 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                                               onPressed: () =>
                                                   deleteDetail(d),
                                             )),
+                                            DataCell(Text(d.nomArticle ?? '-')),
+                                            DataCell(Text(d.quantite != null
+                                                ? d.quantite!.toStringAsFixed(2)
+                                                : '-')),
+                                            DataCell(
+                                                Text(d.uniteMesure ?? '-')),
                                           ]))
                                       .toList(),
                                 ),
@@ -742,24 +742,19 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                       child: interchanges.isEmpty
                           ? const Center(
                               child: Text('Aucun interchange pour ce conteneur.'))
-                          : SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
+                          : HorizontalTableScroller(
                               child: SingleChildScrollView(
                                 child: DataTable(
                                   headingRowColor: WidgetStateProperty.all(
                                       const Color(0xFF1A237E)
                                           .withValues(alpha: 0.08)),
                                   columns: const [
+                                    DataColumn(label: Text('Actions')),
                                     DataColumn(label: Text('Page')),
                                     DataColumn(label: Text('Fichier')),
-                                    DataColumn(label: Text('Actions')),
                                   ],
                                   rows: interchanges
                                       .map((ic) => DataRow(cells: [
-                                            DataCell(
-                                                Text(ic.page?.toString() ?? '-')),
-                                            DataCell(
-                                                Text(ic.nomFichier ?? '-')),
                                             DataCell(IconButton(
                                               icon: const Icon(
                                                   Icons.delete_outline,
@@ -768,6 +763,10 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                                               onPressed: () =>
                                                   deleteInterchange(ic),
                                             )),
+                                            DataCell(
+                                                Text(ic.page?.toString() ?? '-')),
+                                            DataCell(
+                                                Text(ic.nomFichier ?? '-')),
                                           ]))
                                       .toList(),
                                 ),
@@ -1120,20 +1119,19 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                           style: TextStyle(color: Colors.grey))))
             else
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
+                child: HorizontalTableScroller(
                   child: SingleChildScrollView(
                     child: DataTable(
                       headingRowColor: WidgetStateProperty.all(
                           const Color(0xFF1A237E).withValues(alpha: 0.08)),
                       columns: const [
+                        DataColumn(label: Text('Actions')),
                         DataColumn(label: Text('N° Conteneur')),
                         DataColumn(label: Text('N° BL (Dossier)')),
                         DataColumn(label: Text('Client')),
                         DataColumn(label: Text('Dimension')),
                         DataColumn(label: Text('Date sortie port')),
                         DataColumn(label: Text('Transporteur')),
-                        DataColumn(label: Text('Actions')),
                       ],
                       rows: rows.map((row) {
                         final isEditing =
@@ -1145,6 +1143,46 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                                       .withValues(alpha: 0.08)
                                   : null),
                           cells: [
+                            DataCell(
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (_canEdit)
+                                    IconButton(
+                                      icon: const Icon(Icons.edit_outlined,
+                                          color: Color(0xFF1A237E)),
+                                      tooltip: 'Modifier',
+                                      onPressed: () => _startEdit(row),
+                                    ),
+                                  if (_canDelete)
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline,
+                                          color: Colors.red),
+                                      tooltip: 'Supprimer',
+                                      onPressed: () => _confirmDelete(row),
+                                    ),
+                                  IconButton(
+                                    icon: const Icon(
+                                        Icons.format_list_bulleted_outlined,
+                                        color: Color(0xFF0288D1)),
+                                    tooltip: 'Détails (articles)',
+                                    onPressed: () => _showArticlesDialog(row),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.swap_horiz,
+                                        color: Color(0xFF00695C)),
+                                    tooltip: 'Interchanges',
+                                    onPressed: () => _showInterchangesDialog(row),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.info_outline,
+                                        color: Colors.blueGrey),
+                                    tooltip: 'Voir tous les détails',
+                                    onPressed: () => _showDetailsPopup(row),
+                                  ),
+                                ],
+                              ),
+                            ),
                             // Double-click on this cell opens details popup
                             DataCell(
                               GestureDetector(
@@ -1169,51 +1207,6 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                                 row['date_sorti_port'] as String?))),
                             DataCell(Text(
                                 row['nom_transporteur'] as String? ?? '-')),
-                            DataCell(
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (_canEdit)
-                                    IconButton(
-                                      icon: const Icon(Icons.edit_outlined,
-                                          color: Color(0xFF1A237E)),
-                                      tooltip: 'Modifier',
-                                      onPressed: () => _startEdit(row),
-                                    ),
-                                  if (_canDelete)
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline,
-                                          color: Colors.red),
-                                      tooltip: 'Supprimer',
-                                      onPressed: () =>
-                                          _confirmDelete(row),
-                                    ),
-                                  IconButton(
-                                    icon: const Icon(
-                                        Icons.format_list_bulleted_outlined,
-                                        color: Color(0xFF0288D1)),
-                                    tooltip: 'Détails (articles)',
-                                    onPressed: () =>
-                                        _showArticlesDialog(row),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.swap_horiz,
-                                        color: Color(0xFF00695C)),
-                                    tooltip: 'Interchanges',
-                                    onPressed: () =>
-                                        _showInterchangesDialog(row),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(
-                                        Icons.info_outline,
-                                        color: Colors.blueGrey),
-                                    tooltip: 'Voir tous les détails',
-                                    onPressed: () =>
-                                        _showDetailsPopup(row),
-                                  ),
-                                ],
-                              ),
-                            ),
                           ],
                         );
                       }).toList(),

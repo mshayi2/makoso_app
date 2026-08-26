@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
 import '../models/camion.dart';
+import '../widgets/horizontal_table_scroller.dart';
 
 class CamionsScreen extends StatefulWidget {
   const CamionsScreen({super.key});
@@ -286,16 +287,17 @@ class _CamionsScreenState extends State<CamionsScreen> {
               const Expanded(child: Center(child: Text('Aucun camion trouvé.')))
             else
               Expanded(
-                child: SingleChildScrollView(
-                  child: DataTable(
+                child: HorizontalTableScroller(
+                  child: SingleChildScrollView(
+                    child: DataTable(
                     headingRowColor: WidgetStateProperty.all(const Color(0xFF1A237E).withValues(alpha: 0.08)),
                     columnSpacing: 24,
                     columns: const [
+                      DataColumn(label: Text('Actions')),
                       DataColumn(label: Text('Marque')),
                       DataColumn(label: Text('Plaque')),
                       DataColumn(label: Text('Modèle')),
                       DataColumn(label: Text('Capacité')),
-                      DataColumn(label: Text('Actions')),
                     ],
                     rows: _filteredCamions.map((c) {
                       final isEditing = _editingCamion?.uuid == c.uuid;
@@ -304,10 +306,6 @@ class _CamionsScreenState extends State<CamionsScreen> {
                           (states) => isEditing ? const Color(0xFF1A237E).withValues(alpha: 0.06) : null,
                         ),
                         cells: [
-                          DataCell(Text(c.marque ?? '-')),
-                          DataCell(Text(c.plaque ?? '-')),
-                          DataCell(Text(c.modele ?? '-')),
-                          DataCell(Text(c.capacite ?? '-')),
                           DataCell(Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -323,9 +321,14 @@ class _CamionsScreenState extends State<CamionsScreen> {
                               ),
                             ],
                           )),
+                          DataCell(Text(c.marque ?? '-')),
+                          DataCell(Text(c.plaque ?? '-')),
+                          DataCell(Text(c.modele ?? '-')),
+                          DataCell(Text(c.capacite ?? '-')),
                         ],
                       );
                     }).toList(),
+                    ),
                   ),
                 ),
               ),

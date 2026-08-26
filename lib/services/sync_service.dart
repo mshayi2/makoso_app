@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -282,11 +281,17 @@ class AppSyncService {
         final shouldUpdateSync =
             localSync == 0 || (localId > 0 && localSync < 0);
         if (shouldUpdateSync && newSync != null) {
-          updatedCount += await _database.updateSyncValue(
+          final updated = await _database.updateSyncValueIfUnchanged(
             table,
-            uuid: uuid,
+            sentRecord: sentRecord,
             newSync: newSync,
           );
+          updatedCount += updated;
+          if (updated == 0) {
+            debugPrint(
+              '[Sync][$table][$uuid] Réponse ignorée : la ligne locale a changé pendant l’envoi.',
+            );
+          }
         }
       }
     }
@@ -430,11 +435,17 @@ class AppSyncService {
           if (decoded is Map) {
             final newSync = _toInt(decoded['new_sync']);
             if (newSync != null) {
-              updatedCount += await _database.updateSyncValue(
+              final updated = await _database.updateSyncValueIfUnchanged(
                 'interchange',
-                uuid: uuid,
+                sentRecord: sentRecord,
                 newSync: newSync,
               );
+              updatedCount += updated;
+              if (updated == 0) {
+                debugPrint(
+                  '[Sync][interchange][$uuid] Réponse ignorée : la ligne locale a changé pendant l’envoi.',
+                );
+              }
             }
           }
         }

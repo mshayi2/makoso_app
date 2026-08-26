@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../database/app_database.dart';
 import '../models/utilisateur.dart';
+import '../widgets/horizontal_table_scroller.dart';
 
 const List<String> _kRoles = [
   'admin',
@@ -424,16 +425,17 @@ class _UtilisateursScreenState extends State<UtilisateursScreen> {
                   child: Center(child: Text('Aucun utilisateur trouvé.')))
             else
               Expanded(
-                child: SingleChildScrollView(
-                  child: DataTable(
+                child: HorizontalTableScroller(
+                  child: SingleChildScrollView(
+                    child: DataTable(
                     headingRowColor: WidgetStateProperty.all(
                         const Color(0xFF1A237E).withValues(alpha: 0.08)),
                     columnSpacing: 24,
                     columns: const [
+                      DataColumn(label: Text('Actions')),
                       DataColumn(label: Text('Nom complet')),
                       DataColumn(label: Text('Nom d\'utilisateur')),
                       DataColumn(label: Text('Rôle')),
-                      DataColumn(label: Text('Actions')),
                     ],
                     rows: _filteredUsers.map((u) {
                       final isEditing = _editingUser?.uuid == u.uuid;
@@ -444,6 +446,25 @@ class _UtilisateursScreenState extends State<UtilisateursScreen> {
                               : null,
                         ),
                         cells: [
+                          DataCell(
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.edit_outlined,
+                                      color: Color(0xFF1A237E)),
+                                  tooltip: 'Modifier',
+                                  onPressed: () => _startEdit(u),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline,
+                                      color: Colors.red),
+                                  tooltip: 'Supprimer',
+                                  onPressed: () => _confirmDelete(u),
+                                ),
+                              ],
+                            ),
+                          ),
                           DataCell(Text(u.nomComplet ?? '-')),
                           DataCell(Text(u.nomUtilisateur)),
                           DataCell(
@@ -468,28 +489,10 @@ class _UtilisateursScreenState extends State<UtilisateursScreen> {
                               ),
                             ),
                           ),
-                          DataCell(
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit_outlined,
-                                      color: Color(0xFF1A237E)),
-                                  tooltip: 'Modifier',
-                                  onPressed: () => _startEdit(u),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline,
-                                      color: Colors.red),
-                                  tooltip: 'Supprimer',
-                                  onPressed: () => _confirmDelete(u),
-                                ),
-                              ],
-                            ),
-                          ),
                         ],
                       );
                     }).toList(),
+                    ),
                   ),
                 ),
               ),

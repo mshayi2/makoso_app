@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../database/app_database.dart';
 import '../models/client.dart';
 import '../models/utilisateur.dart';
+import '../widgets/horizontal_table_scroller.dart';
 import 'main_screen.dart' show AppCompany;
 
 class ClientsScreen extends StatefulWidget {
@@ -302,16 +303,17 @@ class _ClientsScreenState extends State<ClientsScreen> {
               const Expanded(child: Center(child: Text('Aucun client trouvé.')))
             else
               Expanded(
-                child: SingleChildScrollView(
-                  child: DataTable(
+                child: HorizontalTableScroller(
+                  child: SingleChildScrollView(
+                    child: DataTable(
                     headingRowColor: WidgetStateProperty.all(const Color(0xFF1A237E).withValues(alpha: 0.08)),
                     columnSpacing: 24,
                     columns: const [
+                      DataColumn(label: Text('Actions')),
                       DataColumn(label: Text('Nom')),
                       DataColumn(label: Text('Téléphone')),
                       DataColumn(label: Text('Email')),
                       DataColumn(label: Text('Adresse')),
-                      DataColumn(label: Text('Actions')),
                     ],
                     rows: _filteredClients.map((c) {
                       final isEditing = _editingClient?.uuid == c.uuid;
@@ -320,10 +322,6 @@ class _ClientsScreenState extends State<ClientsScreen> {
                           (states) => isEditing ? const Color(0xFF1A237E).withValues(alpha: 0.06) : null,
                         ),
                         cells: [
-                          DataCell(Text(c.nom)),
-                          DataCell(Text(c.telephone ?? '-')),
-                          DataCell(Text(c.email ?? '-')),
-                          DataCell(Text(c.adresse ?? '-')),
                           DataCell(Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -339,9 +337,14 @@ class _ClientsScreenState extends State<ClientsScreen> {
                               ),
                             ],
                           )),
+                          DataCell(Text(c.nom)),
+                          DataCell(Text(c.telephone ?? '-')),
+                          DataCell(Text(c.email ?? '-')),
+                          DataCell(Text(c.adresse ?? '-')),
                         ],
                       );
                     }).toList(),
+                    ),
                   ),
                 ),
               ),

@@ -23,19 +23,18 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
   @override
   void initState() {
     super.initState();
-    final role = widget.user.role?.toLowerCase().trim() ?? '';
-    if (role == 'opérateur logistique') {
+    final companies = accessibleCompanies(widget.user);
+    if (companies.length == 1) {
       WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _enter(AppCompany.makoso),
-      );
-    } else if (role == 'gestionnaire kinshasa' || role == 'gestionnaire matadi') {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _enter(AppCompany.marian),
+        (_) => _enter(companies.single),
       );
     }
   }
 
   void _enter(AppCompany company) {
+    if (!canAccessCompany(widget.user, company)) {
+      return;
+    }
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -50,6 +49,7 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final companies = accessibleCompanies(widget.user);
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
@@ -107,26 +107,29 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
                     child: Row(
                       children: [
                         // MAKOSO Services card
-                        Expanded(
-                          child: _CompanyCard(
-                            title: 'MAKOSO',
-                            subtitle: 'Services',
-                            icon: Icons.folder_copy_outlined,
-                            color: const Color(0xFF1A237E),
-                            onTap: () => _enter(AppCompany.makoso),
+                        if (companies.contains(AppCompany.makoso))
+                          Expanded(
+                            child: _CompanyCard(
+                              title: 'MAKOSO',
+                              subtitle: 'Services',
+                              icon: Icons.folder_copy_outlined,
+                              color: const Color(0xFF1A237E),
+                              onTap: () => _enter(AppCompany.makoso),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 24),
+                        if (companies.length > 1)
+                          const SizedBox(width: 24),
                         // MARINA Trans card
-                        Expanded(
-                          child: _CompanyCard(
-                            title: 'MARINA',
-                            subtitle: 'Trans',
-                            icon: Icons.local_shipping_outlined,
-                            color: const Color(0xFF00695C),
-                            onTap: () => _enter(AppCompany.marian),
+                        if (companies.contains(AppCompany.marian))
+                          Expanded(
+                            child: _CompanyCard(
+                              title: 'MARINA',
+                              subtitle: 'Trans',
+                              icon: Icons.local_shipping_outlined,
+                              color: const Color(0xFF00695C),
+                              onTap: () => _enter(AppCompany.marian),
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ),

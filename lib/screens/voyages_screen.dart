@@ -10,6 +10,7 @@ import '../models/monnaie.dart';
 import '../models/scan_voyage.dart';
 import '../models/utilisateur.dart';
 import '../models/voyage.dart';
+import '../widgets/horizontal_table_scroller.dart';
 import 'main_screen.dart' show AppCompany;
 
 const List<String> _kStatuts = ['En attente', 'En cours', 'Terminé', 'Annulé'];
@@ -881,8 +882,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
               const Expanded(child: Center(child: Text('Aucun voyage trouvé.')))
             else
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
+                child: HorizontalTableScroller(
                   child: SingleChildScrollView(
                     child: DataTable(
                       headingRowColor: WidgetStateProperty.all(
@@ -890,6 +890,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                       ),
                       columnSpacing: 20,
                       columns: [
+                        const DataColumn(label: Text('Actions')),
                         const DataColumn(label: Text('N° Voyage')),
                         const DataColumn(label: Text('Validé')),
                         const DataColumn(label: Text('Date')),
@@ -901,7 +902,6 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                         if (!_isOpLogistique)
                           const DataColumn(label: Text('Montant')),
                         const DataColumn(label: Text('Statut')),
-                        const DataColumn(label: Text('Actions')),
                       ],
                       rows: _filteredVoyages.map((v) {
                         final isEditing = _editingVoyage?.uuid == v.uuid;
@@ -914,6 +914,46 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                                 : null,
                           ),
                           cells: [
+                            DataCell(
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (_isValidateur && v.valide != 1)
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.verified_outlined,
+                                        color: Colors.green,
+                                      ),
+                                      tooltip: 'Valider',
+                                      onPressed: () => _validateVoyage(v),
+                                    ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.document_scanner_outlined,
+                                      color: Colors.teal,
+                                    ),
+                                    tooltip: 'Documents',
+                                    onPressed: () => _showScanVoyageDialog(v),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.edit_outlined,
+                                      color: Color(0xFF1A237E),
+                                    ),
+                                    tooltip: 'Modifier',
+                                    onPressed: () => _startEdit(v),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
+                                    tooltip: 'Supprimer',
+                                    onPressed: () => _confirmDelete(v),
+                                  ),
+                                ],
+                              ),
+                            ),
                             DataCell(Text(v.numeroVoyage ?? '-')),
                             DataCell(
                               v.valide == 1
@@ -970,46 +1010,6 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                                       ),
                                     )
                                   : const Text('-'),
-                            ),
-                            DataCell(
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (_isValidateur && v.valide != 1)
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.verified_outlined,
-                                        color: Colors.green,
-                                      ),
-                                      tooltip: 'Valider',
-                                      onPressed: () => _validateVoyage(v),
-                                    ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.document_scanner_outlined,
-                                      color: Colors.teal,
-                                    ),
-                                    tooltip: 'Documents',
-                                    onPressed: () => _showScanVoyageDialog(v),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.edit_outlined,
-                                      color: Color(0xFF1A237E),
-                                    ),
-                                    tooltip: 'Modifier',
-                                    onPressed: () => _startEdit(v),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.delete_outline,
-                                      color: Colors.red,
-                                    ),
-                                    tooltip: 'Supprimer',
-                                    onPressed: () => _confirmDelete(v),
-                                  ),
-                                ],
-                              ),
                             ),
                           ],
                         );

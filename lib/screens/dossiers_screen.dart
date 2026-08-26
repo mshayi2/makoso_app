@@ -6,11 +6,14 @@ import 'package:flutter/material.dart';
 import '../database/app_database.dart';
 import '../models/client.dart';
 import '../models/conteneur.dart';
+import '../models/depense.dart';
+import '../models/depot_argent.dart';
 import '../models/detail_conteneur.dart';
 import '../models/dossier.dart';
 import '../models/interchange.dart';
 import '../models/scan_bl.dart';
 import '../models/utilisateur.dart';
+import '../widgets/horizontal_table_scroller.dart';
 
 const List<String> _kStatuts = [
   'En attente',
@@ -293,6 +296,208 @@ class _DossiersScreenState extends State<DossiersScreen> {
   String? _n(String s) => s.trim().isEmpty ? null : s.trim();
 
   int _conteneurCount(String dossierUuid) => _conteneurCounts[dossierUuid] ?? 0;
+
+  Future<void> _showDossierDetails(Dossier dossier) async {
+    final dataFuture = Future.wait([
+      AppDatabase.instance.getDepotArgentRecords(
+        table: 'depot_argent_makoso',
+        sourceUuid: dossier.uuid,
+        limit: null,
+      ),
+      AppDatabase.instance.getDepenses(
+        table: 'depenses_makoso',
+        dossierUuid: dossier.uuid,
+        limit: null,
+      ),
+      AppDatabase.instance.getConteneursByDossier(dossier.uuid),
+    ]);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.folder_open_outlined, color: Color(0xFF1A237E)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text('Détails du dossier ${dossier.numeroBl ?? '-'}'),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 1100,
+          height: 680,
+          child: FutureBuilder<List<Object>>(
+            future: dataFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text(
+                    'Impossible de charger les détails : ${snapshot.error}',
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                );
+              }
+
+              final results = snapshot.data!;
+              final depots = results[0] as List<DepotArgentRecord>;
+              final depenses = results[1] as List<DepenseRecord>;
+              final conteneurs = results[2] as List<Conteneur>;
+              return ListView(
+                children: [
+                  _DossierDetailSection(
+                    icon: Icons.description_outlined,
+                    title: 'Informations du dossier',
+                    child: Wrap(
+                      spacing: 24,
+                      runSpacing: 16,
+                      children: [
+                        _DossierInfo(label: 'N° BL', value: dossier.numeroBl),
+                        _DossierInfo(
+                            label: 'Client',
+                            value: _clientLabel(dossier.clientUuid)),
+                        _DossierInfo(label: 'Statut', value: dossier.statut),
+                        _DossierInfo(label: 'Type BL', value: dossier.typeBl),
+                        _DossierInfo(
+                            label: 'Port de chargement',
+                            value: dossier.portChargement),
+                        _DossierInfo(
+                            label: 'Port de destination',
+                            value: dossier.portDestination),
+                        _DossierInfo(
+                            label: 'Marchandise',
+                            value: dossier.natureMarchandise),
+                        _DossierInfo(
+                            label: 'Montant convenu',
+                            value: dossier.montantConvenu?.toStringAsFixed(2)),
+                        _DossierInfo(
+                            label: 'Arrivée PN',
+                            value: _formatDate(dossier.dateArriveePn)),
+                        _DossierInfo(
+                            label: 'Arrivée Matadi',
+                            value: _formatDate(dossier.dateArriveeMatadi)),
+                        _DossierInfo(
+                            label: 'Paiement 30% Draft',
+                            value: _formatDate(dossier.datePaiement30Draft)),
+                        _DossierInfo(
+                            label: 'Paiement 30% PN',
+                            value: _formatDate(dossier.datePaiement30Pn)),
+                        _DossierInfo(
+                            label: 'Paiement 40% Matadi',
+                            value: _formatDate(dossier.datePaiement40Matadi)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  _DossierDetailSection(
+                    icon: Icons.account_balance_wallet_outlined,
+                    title: "Dépôts d'argent (${depots.length})",
+                    child: depots.isEmpty
+                        ? const _DossierEmpty(message: 'Aucun dépôt lié à ce dossier.')
+                        : HorizontalTableScroller(
+                            child: DataTable(
+                              columns: const [
+                                DataColumn(label: Text('Date')),
+                                DataColumn(label: Text('Libellé')),
+                                DataColumn(label: Text('Montant')),
+                                DataColumn(label: Text('Monnaie')),
+                                DataColumn(label: Text('Agent')),
+                                DataColumn(label: Text('Observation')),
+                              ],
+                              rows: depots
+                                  .map((depot) => DataRow(cells: [
+                                        DataCell(Text(_formatDate(depot.datePaiement))),
+                                        DataCell(Text(depot.libelle ?? '-')),
+                                        DataCell(Text(depot.montant?.toStringAsFixed(2) ?? '-')),
+                                        DataCell(Text(depot.monnaieLabel)),
+                                        DataCell(Text(depot.agent ?? '-')),
+                                        DataCell(Text(depot.observation ?? '-')),
+                                      ]))
+                                  .toList(),
+                            ),
+                          ),
+                  ),
+                  const SizedBox(height: 18),
+                  _DossierDetailSection(
+                    icon: Icons.money_off_outlined,
+                    title: 'Dépenses (${depenses.length})',
+                    child: depenses.isEmpty
+                        ? const _DossierEmpty(message: 'Aucune dépense liée à ce dossier.')
+                        : HorizontalTableScroller(
+                            child: DataTable(
+                              columns: const [
+                                DataColumn(label: Text('Date')),
+                                DataColumn(label: Text('Libellé')),
+                                DataColumn(label: Text('Montant')),
+                                DataColumn(label: Text('Monnaie')),
+                                DataColumn(label: Text('Statut')),
+                                DataColumn(label: Text('Validateur')),
+                                DataColumn(label: Text('Observation')),
+                              ],
+                              rows: depenses
+                                  .map((depense) => DataRow(cells: [
+                                        DataCell(Text(_formatDate(depense.date))),
+                                        DataCell(Text(depense.libelle ?? '-')),
+                                        DataCell(Text(depense.montant?.toStringAsFixed(2) ?? '-')),
+                                        DataCell(Text(depense.monnaieLabel)),
+                                        DataCell(Text(depense.validationStatus)),
+                                        DataCell(Text(depense.validateurNom ?? '-')),
+                                        DataCell(Text(depense.observation ?? '-')),
+                                      ]))
+                                  .toList(),
+                            ),
+                          ),
+                  ),
+                  const SizedBox(height: 18),
+                  _DossierDetailSection(
+                    icon: Icons.inventory_2_outlined,
+                    title: 'Conteneurs (${conteneurs.length})',
+                    child: conteneurs.isEmpty
+                        ? const _DossierEmpty(message: 'Aucun conteneur lié à ce dossier.')
+                        : HorizontalTableScroller(
+                            child: DataTable(
+                              columns: const [
+                                DataColumn(label: Text('N° conteneur')),
+                                DataColumn(label: Text('Dimension')),
+                                DataColumn(label: Text('Sortie port')),
+                                DataColumn(label: Text('Transporteur')),
+                                DataColumn(label: Text('Plaque')),
+                                DataColumn(label: Text('Chauffeur')),
+                                DataColumn(label: Text('Lieu déchargement')),
+                                DataColumn(label: Text('Retour port')),
+                              ],
+                              rows: conteneurs
+                                  .map((conteneur) => DataRow(cells: [
+                                        DataCell(Text(conteneur.numeroConteneur ?? '-')),
+                                        DataCell(Text(conteneur.dimension ?? '-')),
+                                        DataCell(Text(_formatDate(conteneur.dateSortiPort))),
+                                        DataCell(Text(conteneur.nomTransporteur ?? '-')),
+                                        DataCell(Text(conteneur.numeroPlaque ?? '-')),
+                                        DataCell(Text(conteneur.nomChauffeur ?? '-')),
+                                        DataCell(Text(conteneur.lieuDechargement ?? '-')),
+                                        DataCell(Text(_formatDate(conteneur.dateRetourPort))),
+                                      ]))
+                                  .toList(),
+                            ),
+                          ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Fermer'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _showConteneursDialog(Dossier dossier) async {
     final numeroCtrl = TextEditingController();
@@ -584,18 +789,17 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                   Expanded(
                                     child: conteneurs.isEmpty
                                         ? const Center(child: Text('Aucun conteneur pour ce dossier.'))
-                                        : SingleChildScrollView(
-                                            scrollDirection: Axis.horizontal,
+                                        : HorizontalTableScroller(
                                             child: SingleChildScrollView(
                                               child: DataTable(
                                                 headingRowColor: WidgetStateProperty.all(
                                                   const Color(0xFF1A237E).withValues(alpha: 0.08),
                                                 ),
                                                 columns: const [
+                                                  DataColumn(label: Text('Actions')),
                                                   DataColumn(label: Text('Numéro conteneur')),
                                                   DataColumn(label: Text('Dimension')),
                                                   DataColumn(label: Text('Interchange')),
-                                                  DataColumn(label: Text('Actions')),
                                                 ],
                                                 rows: conteneurs.map((conteneur) {
                                                   final isSelected = selectedConteneur?.uuid == conteneur.uuid;
@@ -611,16 +815,6 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                                       await refreshDetails(setDialogState);
                                                     },
                                                     cells: [
-                                                      DataCell(
-                                                        Text(
-                                                          conteneur.numeroConteneur ?? '-',
-                                                          style: TextStyle(
-                                                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      DataCell(Text(conteneur.dimension ?? '-')),
-                                                      DataCell(Text((interchangeCounts[conteneur.uuid] ?? 0).toString())),
                                                       DataCell(
                                                         Row(
                                                           mainAxisSize: MainAxisSize.min,
@@ -641,6 +835,16 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                                           ],
                                                         ),
                                                       ),
+                                                      DataCell(
+                                                        Text(
+                                                          conteneur.numeroConteneur ?? '-',
+                                                          style: TextStyle(
+                                                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      DataCell(Text(conteneur.dimension ?? '-')),
+                                                      DataCell(Text((interchangeCounts[conteneur.uuid] ?? 0).toString())),
                                                     ],
                                                   );
                                                 }).toList(),
@@ -728,29 +932,21 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                         Expanded(
                                           child: details.isEmpty
                                               ? const Center(child: Text('Aucun détail pour ce conteneur.'))
-                                              : SingleChildScrollView(
-                                                  scrollDirection: Axis.horizontal,
+                                              : HorizontalTableScroller(
                                                   child: SingleChildScrollView(
                                                     child: DataTable(
                                                       headingRowColor: WidgetStateProperty.all(
                                                         const Color(0xFF1565C0).withValues(alpha: 0.08),
                                                       ),
                                                       columns: const [
+                                                        DataColumn(label: Text('Actions')),
                                                         DataColumn(label: Text('Article')),
                                                         DataColumn(label: Text('Quantité')),
                                                         DataColumn(label: Text('Unité')),
-                                                        DataColumn(label: Text('Actions')),
                                                       ],
                                                       rows: details.map((detail) {
                                                         return DataRow(
                                                           cells: [
-                                                            DataCell(Text(detail.nomArticle ?? '-')),
-                                                            DataCell(Text(
-                                                              detail.quantite != null
-                                                                  ? detail.quantite!.toStringAsFixed(2)
-                                                                  : '-',
-                                                            )),
-                                                            DataCell(Text(detail.uniteMesure ?? '-')),
                                                             DataCell(
                                                               IconButton(
                                                                 icon: const Icon(Icons.delete_outline, color: Colors.red),
@@ -758,6 +954,13 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                                                 onPressed: () => deleteDetail(detail),
                                                               ),
                                                             ),
+                                                            DataCell(Text(detail.nomArticle ?? '-')),
+                                                            DataCell(Text(
+                                                              detail.quantite != null
+                                                                  ? detail.quantite!.toStringAsFixed(2)
+                                                                  : '-',
+                                                            )),
+                                                            DataCell(Text(detail.uniteMesure ?? '-')),
                                                           ],
                                                         );
                                                       }).toList(),
@@ -1013,20 +1216,19 @@ class _DossiersScreenState extends State<DossiersScreen> {
                       Expanded(
                         child: interchanges.isEmpty
                             ? const Center(child: Text('Aucun interchange pour ce conteneur.'))
-                            : SingleChildScrollView(
-                                child: DataTable(
+                            : HorizontalTableScroller(
+                                child: SingleChildScrollView(
+                                  child: DataTable(
                                   headingRowColor: WidgetStateProperty.all(
                                     const Color(0xFF1A237E).withValues(alpha: 0.08),
                                   ),
                                   columns: const [
+                                    DataColumn(label: Text('Actions')),
                                     DataColumn(label: Text('Page')),
                                     DataColumn(label: Text('Nom fichier')),
-                                    DataColumn(label: Text('Actions')),
                                   ],
                                   rows: interchanges.map((ic) {
                                     return DataRow(cells: [
-                                      DataCell(Text(ic.page?.toString() ?? '-')),
-                                      DataCell(Text(ic.nomFichier ?? '-')),
                                       DataCell(
                                         IconButton(
                                           icon: const Icon(Icons.delete_outline, color: Colors.red),
@@ -1034,8 +1236,11 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                           onPressed: () => deleteInterchange(ic),
                                         ),
                                       ),
+                                      DataCell(Text(ic.page?.toString() ?? '-')),
+                                      DataCell(Text(ic.nomFichier ?? '-')),
                                     ]);
                                   }).toList(),
+                                  ),
                                 ),
                               ),
                       ),
@@ -1277,20 +1482,19 @@ class _DossiersScreenState extends State<DossiersScreen> {
                       Expanded(
                         child: scans.isEmpty
                             ? const Center(child: Text('Aucun scan BL pour ce dossier.'))
-                            : SingleChildScrollView(
-                                child: DataTable(
+                            : HorizontalTableScroller(
+                                child: SingleChildScrollView(
+                                  child: DataTable(
                                   headingRowColor: WidgetStateProperty.all(
                                     const Color(0xFF1A237E).withValues(alpha: 0.08),
                                   ),
                                   columns: const [
+                                    DataColumn(label: Text('Actions')),
                                     DataColumn(label: Text('Page')),
                                     DataColumn(label: Text('Nom fichier')),
-                                    DataColumn(label: Text('Actions')),
                                   ],
                                   rows: scans.map((s) {
                                     return DataRow(cells: [
-                                      DataCell(Text(s.page?.toString() ?? '-')),
-                                      DataCell(Text(s.nomFichier ?? '-')),
                                       DataCell(
                                         IconButton(
                                           icon: const Icon(Icons.delete_outline, color: Colors.red),
@@ -1298,8 +1502,11 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                           onPressed: () => deleteScan(s),
                                         ),
                                       ),
+                                      DataCell(Text(s.page?.toString() ?? '-')),
+                                      DataCell(Text(s.nomFichier ?? '-')),
                                     ]);
                                   }).toList(),
+                                  ),
                                 ),
                               ),
                       ),
@@ -1630,19 +1837,16 @@ class _DossiersScreenState extends State<DossiersScreen> {
               const Expanded(child: Center(child: Text('Aucun dossier trouvé.')))
             else
               Expanded(
-                child: Scrollbar(
+                child: HorizontalTableScroller(
                   controller: _hScrollCtrl,
-                  thumbVisibility: true,
                   child: SingleChildScrollView(
-                    controller: _hScrollCtrl,
-                    scrollDirection: Axis.horizontal,
-                    child: SingleChildScrollView(
                       child: DataTable(
                         headingRowColor: WidgetStateProperty.all(
                           const Color(0xFF1A237E).withValues(alpha: 0.08),
                         ),
                         columnSpacing: 20,
                         columns: [
+                          const DataColumn(label: Text('Actions')),
                           const DataColumn(label: Text('N° BL')),
                           const DataColumn(label: Text('Client')),
                           const DataColumn(label: Text('Port charg.')),
@@ -1659,76 +1863,18 @@ class _DossiersScreenState extends State<DossiersScreen> {
                             const DataColumn(label: Text('Paiem. 40% Matadi')),
                             const DataColumn(label: Text('Montant')),
                           ],
-                          const DataColumn(label: Text('Actions')),
                         ],
                         rows: _filteredDossiers.map((d) {
                           final isEditing = _editingDossier?.uuid == d.uuid;
+                          DataCell detailCell(Widget child) => DataCell(
+                                child,
+                                onDoubleTap: () => _showDossierDetails(d),
+                              );
                           return DataRow(
                             color: WidgetStateProperty.resolveWith(
                               (s) => isEditing ? const Color(0xFF1A237E).withValues(alpha: 0.06) : null,
                             ),
                             cells: [
-                              DataCell(Text(d.numeroBl ?? '-')),
-                              DataCell(Text(_clientLabel(d.clientUuid))),
-                              DataCell(Text(d.portChargement ?? '-')),
-                              DataCell(Text(d.portDestination ?? '-')),
-                              DataCell(Text(_conteneurCount(d.uuid).toString())),
-                              DataCell(
-                                d.statut != null
-                                    ? Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: _statutColor(d.statut).withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: _statutColor(d.statut).withValues(alpha: 0.4)),
-                                        ),
-                                        child: Text(
-                                          d.statut!,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: _statutColor(d.statut),
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      )
-                                    : const Text('-'),
-                              ),
-                              DataCell(Text(d.natureMarchandise ?? '-')),
-                              DataCell(Text(_formatDate(d.dateArriveePn))),
-                              DataCell(Text(_formatDate(d.dateArriveeMatadi))),
-                              if (!_isOpLogistique) ...
-                              [
-                                DataCell(Text(_formatDate(d.datePaiement30Draft))),
-                                DataCell(Text(_formatDate(d.datePaiement30Pn))),
-                                DataCell(Text(_formatDate(d.datePaiement40Matadi))),
-                                DataCell(Builder(builder: (context) {
-                                  final total = _depensesTotals[d.uuid];
-                                  final overrun = total != null &&
-                                      d.montantConvenu != null &&
-                                      total > d.montantConvenu!;
-                                  return Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        d.montantConvenu != null
-                                            ? d.montantConvenu!.toStringAsFixed(2)
-                                            : '-',
-                                      ),
-                                      if (overrun) ...[
-                                        const SizedBox(width: 4),
-                                        Tooltip(
-                                          message: 'Dépenses (${total!.toStringAsFixed(2)}) dépassent le montant convenu',
-                                          child: const Icon(
-                                            Icons.warning_amber_rounded,
-                                            color: Colors.orange,
-                                            size: 18,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  );
-                                })),
-                              ],
                               DataCell(
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -1762,12 +1908,72 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                   ],
                                 ),
                               ),
+                              detailCell(Text(d.numeroBl ?? '-')),
+                              detailCell(Text(_clientLabel(d.clientUuid))),
+                              detailCell(Text(d.portChargement ?? '-')),
+                              detailCell(Text(d.portDestination ?? '-')),
+                              detailCell(Text(_conteneurCount(d.uuid).toString())),
+                              detailCell(
+                                d.statut != null
+                                    ? Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: _statutColor(d.statut).withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: _statutColor(d.statut).withValues(alpha: 0.4)),
+                                        ),
+                                        child: Text(
+                                          d.statut!,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: _statutColor(d.statut),
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      )
+                                    : const Text('-'),
+                              ),
+                              detailCell(Text(d.natureMarchandise ?? '-')),
+                              detailCell(Text(_formatDate(d.dateArriveePn))),
+                              detailCell(Text(_formatDate(d.dateArriveeMatadi))),
+                              if (!_isOpLogistique) ...
+                              [
+                                detailCell(Text(_formatDate(d.datePaiement30Draft))),
+                                detailCell(Text(_formatDate(d.datePaiement30Pn))),
+                                detailCell(Text(_formatDate(d.datePaiement40Matadi))),
+                                detailCell(Builder(builder: (context) {
+                                  final total = _depensesTotals[d.uuid];
+                                  final overrun = total != null &&
+                                      d.montantConvenu != null &&
+                                      total > d.montantConvenu!;
+                                  return Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        d.montantConvenu != null
+                                            ? d.montantConvenu!.toStringAsFixed(2)
+                                            : '-',
+                                      ),
+                                      if (overrun) ...[
+                                        const SizedBox(width: 4),
+                                        Tooltip(
+                                          message: 'Dépenses (${total.toStringAsFixed(2)}) dépassent le montant convenu',
+                                          child: const Icon(
+                                            Icons.warning_amber_rounded,
+                                            color: Colors.orange,
+                                            size: 18,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  );
+                                })),
+                              ],
                             ],
                           );
                         }).toList(),
                       ),
                     ),
-                  ),
                 ),
               ),
           ],
@@ -1788,6 +1994,85 @@ class _DossiersScreenState extends State<DossiersScreen> {
           Expanded(child: _buildList()),
         ],
       ),
+    );
+  }
+}
+
+class _DossierDetailSection extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final Widget child;
+
+  const _DossierDetailSection({
+    required this.icon,
+    required this.title,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: const Color(0xFF1A237E)),
+                const SizedBox(width: 8),
+                Text(title, style: Theme.of(context).textTheme.titleMedium),
+              ],
+            ),
+            const Divider(height: 24),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DossierInfo extends StatelessWidget {
+  final String label;
+  final String? value;
+
+  const _DossierInfo({required this.label, this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 230,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.labelMedium),
+          const SizedBox(height: 3),
+          Text(
+            value == null || value!.isEmpty ? '-' : value!,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DossierEmpty extends StatelessWidget {
+  final String message;
+
+  const _DossierEmpty({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 18),
+      child: Center(child: Text(message)),
     );
   }
 }
