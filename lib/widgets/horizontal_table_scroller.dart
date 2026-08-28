@@ -107,11 +107,18 @@ class _HorizontalTableScrollerState extends State<HorizontalTableScroller> {
           child: Scrollbar(
             controller: _controller,
             thumbVisibility: true,
+            trackVisibility: true,
+            interactive: true,
+            thickness: 12,
+            radius: const Radius.circular(4),
             scrollbarOrientation: ScrollbarOrientation.bottom,
             child: SingleChildScrollView(
               controller: _controller,
               scrollDirection: Axis.horizontal,
-              child: widget.child,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: widget.child,
+              ),
             ),
           ),
         ),

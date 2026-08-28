@@ -1,7 +1,8 @@
-import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as path;
 
 import '../database/app_database.dart';
 import '../models/conteneur.dart';
@@ -27,6 +28,8 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
 
   // Form controllers
   final _numeroCtrl = TextEditingController();
+  final _poidsCtrl = TextEditingController();
+  final _natureMarchandiseCtrl = TextEditingController();
   final _dateSortiPortCtrl = TextEditingController();
   final _nomTransporteurCtrl = TextEditingController();
   final _marqueCamionCtrl = TextEditingController();
@@ -45,6 +48,8 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
   Conteneur? _editingConteneur;
   bool _isSaving = false;
   bool _isLoading = true;
+  bool _isFormExpanded = true;
+  bool _isGridExpanded = true;
 
   List<Map<String, Object?>> _conteneurs = [];
   List<Dossier> _activeDossiers = [];
@@ -63,6 +68,8 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
   void dispose() {
     _searchCtrl.dispose();
     _numeroCtrl.dispose();
+    _poidsCtrl.dispose();
+    _natureMarchandiseCtrl.dispose();
     _dateSortiPortCtrl.dispose();
     _nomTransporteurCtrl.dispose();
     _marqueCamionCtrl.dispose();
@@ -129,12 +136,17 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
   void _startEdit(Map<String, Object?> row) {
     final c = Conteneur.fromMap(row);
     setState(() {
+      _isFormExpanded = true;
       _editingConteneur = c;
       _selectedDossierUuid = _activeDossiers.any((d) => d.uuid == c.dossierUuid)
           ? c.dossierUuid
           : null;
       _numeroCtrl.text = c.numeroConteneur ?? '';
-      _selectedDimension = _kDimensions.contains(c.dimension) ? c.dimension : null;
+      _selectedDimension = _kDimensions.contains(c.dimension)
+          ? c.dimension
+          : null;
+      _poidsCtrl.text = c.poids?.toString() ?? '';
+      _natureMarchandiseCtrl.text = c.natureMarchandise ?? '';
       _dateSortiPortCtrl.text = c.dateSortiPort ?? '';
       _nomTransporteurCtrl.text = c.nomTransporteur ?? '';
       _marqueCamionCtrl.text = c.marqueCamion ?? '';
@@ -156,6 +168,8 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
       _selectedDossierUuid = null;
       _selectedDimension = null;
       _numeroCtrl.clear();
+      _poidsCtrl.clear();
+      _natureMarchandiseCtrl.clear();
       _dateSortiPortCtrl.clear();
       _nomTransporteurCtrl.clear();
       _marqueCamionCtrl.clear();
@@ -176,6 +190,8 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
     final isEditing = _editingConteneur != null;
+    final poidsText = _poidsCtrl.text.trim().replaceAll(',', '.');
+    final poids = poidsText.isEmpty ? null : double.parse(poidsText);
     try {
       if (isEditing) {
         await AppDatabase.instance.updateConteneur(
@@ -183,6 +199,8 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
           dossierUuid: _selectedDossierUuid,
           numeroConteneur: _n(_numeroCtrl.text),
           dimension: _selectedDimension,
+          poids: poids,
+          natureMarchandise: _n(_natureMarchandiseCtrl.text),
           dateSortiPort: _n(_dateSortiPortCtrl.text),
           nomTransporteur: _n(_nomTransporteurCtrl.text),
           marqueCamion: _n(_marqueCamionCtrl.text),
@@ -207,6 +225,8 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
           dossierUuid: _selectedDossierUuid!,
           numeroConteneur: _numeroCtrl.text.trim(),
           dimension: _selectedDimension,
+          poids: poids,
+          natureMarchandise: _n(_natureMarchandiseCtrl.text),
           dateSortiPort: _n(_dateSortiPortCtrl.text),
           nomTransporteur: _n(_nomTransporteurCtrl.text),
           marqueCamion: _n(_marqueCamionCtrl.text),
@@ -223,11 +243,15 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
       _cancelEdit();
       await _loadAll();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(isEditing
-              ? 'Conteneur modifié avec succès.'
-              : 'Conteneur ajouté avec succès.'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isEditing
+                  ? 'Conteneur modifié avec succès.'
+                  : 'Conteneur ajouté avec succès.',
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -248,9 +272,15 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
         title: const Text('Supprimer le conteneur'),
         content: Text('Supprimer le conteneur "$numero" et tous ses détails ?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Supprimer'),
           ),
@@ -262,9 +292,9 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
       await AppDatabase.instance.deleteConteneur(row['uuid'] as String);
       await _loadAll();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Conteneur supprimé.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Conteneur supprimé.')));
       }
     }
   }
@@ -299,23 +329,49 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                 _detailRow('Dossier (N° BL)', row['numero_bl']),
                 _detailRow('Client', row['client_nom']),
                 _detailRow('Dimension', row['dimension']),
-                _detailRow('Date sortie port', _formatDate(row['date_sorti_port'] as String?)),
+                _detailRow(
+                  'Poids',
+                  row['poids'] == null ? null : '${row['poids']} kg',
+                ),
+                _detailRow(
+                  'Nature de la marchandise',
+                  row['nature_marchandise'],
+                ),
+                _detailRow(
+                  'Date sortie port',
+                  _formatDate(row['date_sorti_port'] as String?),
+                ),
                 _detailRow('Transporteur', row['nom_transporteur']),
                 _detailRow('Marque camion', row['marque_camion']),
                 _detailRow('N° plaque', row['numero_plaque']),
                 _detailRow('Nom chauffeur', row['nom_chauffeur']),
                 _detailRow('N° chauffeur', row['numero_chauffeur']),
                 _detailRow('Lieu déchargement', row['lieu_dechargement']),
-                _detailRow('Date arrivée lieu décharg.', _formatDate(row['date_arriver_lieu_dechargement'] as String?)),
-                _detailRow('Date déchargement', _formatDate(row['date_dechargement'] as String?)),
-                _detailRow('Date départ retour port', _formatDate(row['date_depart_retour_port'] as String?)),
-                _detailRow('Date retour port', _formatDate(row['date_retour_port'] as String?)),
+                _detailRow(
+                  'Date arrivée lieu décharg.',
+                  _formatDate(row['date_arriver_lieu_dechargement'] as String?),
+                ),
+                _detailRow(
+                  'Date déchargement',
+                  _formatDate(row['date_dechargement'] as String?),
+                ),
+                _detailRow(
+                  'Date départ retour port',
+                  _formatDate(row['date_depart_retour_port'] as String?),
+                ),
+                _detailRow(
+                  'Date retour port',
+                  _formatDate(row['date_retour_port'] as String?),
+                ),
               ],
             ),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fermer'),
+          ),
         ],
       ),
     );
@@ -330,9 +386,14 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-          child: Text(label,
-              style: const TextStyle(
-                  fontWeight: FontWeight.w600, color: Color(0xFF1A237E), fontSize: 13)),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1A237E),
+              fontSize: 13,
+            ),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
@@ -351,7 +412,9 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
     final nomArticleCtrl = TextEditingController();
     final quantiteCtrl = TextEditingController();
     final uniteMesureCtrl = TextEditingController();
-    var details = await AppDatabase.instance.getDetailsByConteneur(conteneur.uuid);
+    var details = await AppDatabase.instance.getDetailsByConteneur(
+      conteneur.uuid,
+    );
     var isSavingDetail = false;
 
     try {
@@ -364,7 +427,9 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
               final nom = nomArticleCtrl.text.trim();
               if (nom.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Le nom de l'article est requis.")),
+                  const SnackBar(
+                    content: Text("Le nom de l'article est requis."),
+                  ),
                 );
                 return;
               }
@@ -387,8 +452,9 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                 nomArticleCtrl.clear();
                 quantiteCtrl.clear();
                 uniteMesureCtrl.clear();
-                final items =
-                    await AppDatabase.instance.getDetailsByConteneur(conteneur.uuid);
+                final items = await AppDatabase.instance.getDetailsByConteneur(
+                  conteneur.uuid,
+                );
                 if (!mounted) return;
                 setDialogState(() => details = items);
               } finally {
@@ -401,14 +467,19 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                 context: ctx,
                 builder: (c) => AlertDialog(
                   title: const Text('Supprimer le détail'),
-                  content: Text('Supprimer "${detail.nomArticle ?? detail.uuid}" ?'),
+                  content: Text(
+                    'Supprimer "${detail.nomArticle ?? detail.uuid}" ?',
+                  ),
                   actions: [
                     TextButton(
-                        onPressed: () => Navigator.pop(c, false),
-                        child: const Text('Annuler')),
+                      onPressed: () => Navigator.pop(c, false),
+                      child: const Text('Annuler'),
+                    ),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red, foregroundColor: Colors.white),
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      ),
                       onPressed: () => Navigator.pop(c, true),
                       child: const Text('Supprimer'),
                     ),
@@ -417,15 +488,17 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
               );
               if (ok != true) return;
               await AppDatabase.instance.deleteDetailConteneur(detail.uuid);
-              final items =
-                  await AppDatabase.instance.getDetailsByConteneur(conteneur.uuid);
+              final items = await AppDatabase.instance.getDetailsByConteneur(
+                conteneur.uuid,
+              );
               if (!mounted) return;
               setDialogState(() => details = items);
             }
 
             return AlertDialog(
               title: Text(
-                  'Articles – ${conteneur.numeroConteneur ?? conteneur.uuid}'),
+                'Articles – ${conteneur.numeroConteneur ?? conteneur.uuid}',
+              ),
               content: SizedBox(
                 width: 700,
                 height: 500,
@@ -455,7 +528,9 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                               labelText: 'Quantité',
                               border: OutlineInputBorder(),
                             ),
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -478,14 +553,19 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                               backgroundColor: const Color(0xFF1A237E),
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(
-                                  vertical: 18, horizontal: 12),
+                                vertical: 18,
+                                horizontal: 12,
+                              ),
                             ),
                             icon: isSavingDetail
                                 ? const SizedBox(
                                     width: 16,
                                     height: 16,
                                     child: CircularProgressIndicator(
-                                        color: Colors.white, strokeWidth: 2))
+                                      color: Colors.white,
+                                      strokeWidth: 2,
+                                    ),
+                                  )
                                 : const Icon(Icons.add),
                             label: const Text('Ajouter'),
                           ),
@@ -496,13 +576,16 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                     Expanded(
                       child: details.isEmpty
                           ? const Center(
-                              child: Text('Aucun article pour ce conteneur.'))
+                              child: Text('Aucun article pour ce conteneur.'),
+                            )
                           : HorizontalTableScroller(
                               child: SingleChildScrollView(
                                 child: DataTable(
                                   headingRowColor: WidgetStateProperty.all(
-                                      const Color(0xFF1A237E)
-                                          .withValues(alpha: 0.08)),
+                                    const Color(
+                                      0xFF1A237E,
+                                    ).withValues(alpha: 0.08),
+                                  ),
                                   columns: const [
                                     DataColumn(label: Text('Actions')),
                                     DataColumn(label: Text('Article')),
@@ -510,22 +593,35 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                                     DataColumn(label: Text('Unité')),
                                   ],
                                   rows: details
-                                      .map((d) => DataRow(cells: [
-                                            DataCell(IconButton(
-                                              icon: const Icon(
-                                                  Icons.delete_outline,
-                                                  color: Colors.red),
-                                              tooltip: 'Supprimer',
-                                              onPressed: () =>
-                                                  deleteDetail(d),
-                                            )),
-                                            DataCell(Text(d.nomArticle ?? '-')),
-                                            DataCell(Text(d.quantite != null
-                                                ? d.quantite!.toStringAsFixed(2)
-                                                : '-')),
+                                      .map(
+                                        (d) => DataRow(
+                                          cells: [
                                             DataCell(
-                                                Text(d.uniteMesure ?? '-')),
-                                          ]))
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.delete_outline,
+                                                  color: Colors.red,
+                                                ),
+                                                tooltip: 'Supprimer',
+                                                onPressed: () =>
+                                                    deleteDetail(d),
+                                              ),
+                                            ),
+                                            DataCell(Text(d.nomArticle ?? '-')),
+                                            DataCell(
+                                              Text(
+                                                d.quantite != null
+                                                    ? d.quantite!
+                                                          .toStringAsFixed(2)
+                                                    : '-',
+                                              ),
+                                            ),
+                                            DataCell(
+                                              Text(d.uniteMesure ?? '-'),
+                                            ),
+                                          ],
+                                        ),
+                                      )
                                       .toList(),
                                 ),
                               ),
@@ -536,8 +632,9 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
               ),
               actions: [
                 TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Fermer')),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Fermer'),
+                ),
               ],
             );
           },
@@ -551,14 +648,84 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
   }
 
   // ── Popup: Interchanges ───────────────────────────────────────────────────
+  Future<void> _viewLocalDocument(String? filePath) async {
+    if (filePath == null ||
+        filePath.isEmpty ||
+        !await File(filePath).exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Le fichier est introuvable sur ce poste.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+    if (path.extension(filePath).toLowerCase() != '.pdf') {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => Dialog(
+          child: SizedBox(
+            width: 900,
+            height: 650,
+            child: Column(
+              children: [
+                ListTile(
+                  title: Text(path.basename(filePath)),
+                  trailing: IconButton(
+                    tooltip: 'Fermer',
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: InteractiveViewer(
+                    minScale: 0.5,
+                    maxScale: 5,
+                    child: Center(
+                      child: Image.file(File(filePath), fit: BoxFit.contain),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    try {
+      if (Platform.isWindows) {
+        await Process.start('explorer.exe', [filePath]);
+      } else if (Platform.isMacOS) {
+        await Process.start('open', [filePath]);
+      } else if (Platform.isLinux) {
+        await Process.start('xdg-open', [filePath]);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Impossible d’ouvrir le PDF : $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _showInterchangesDialog(Map<String, Object?> row) async {
     final conteneur = Conteneur.fromMap(row);
     final pageCtrl = TextEditingController();
     final nomFichierCtrl = TextEditingController();
-    Uint8List? selectedScanBytes;
+    String? selectedSourcePath;
     String? selectedScanName;
-    var interchanges =
-        await AppDatabase.instance.getInterchangesByConteneur(conteneur.uuid);
+    var interchanges = await AppDatabase.instance.getInterchangesByConteneur(
+      conteneur.uuid,
+    );
     var isSaving = false;
 
     try {
@@ -569,34 +736,40 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
           builder: (ctx, setDialogState) {
             Future<void> pickFile() async {
               final result = await FilePicker.platform.pickFiles(
-                type: FileType.any,
-                withData: true,
+                type: FileType.custom,
+                allowedExtensions: const [
+                  'pdf',
+                  'png',
+                  'jpg',
+                  'jpeg',
+                  'gif',
+                  'webp',
+                  'bmp',
+                ],
               );
               if (result != null && result.files.isNotEmpty) {
                 final file = result.files.first;
-                if (file.bytes != null) {
-                  setDialogState(() {
-                    selectedScanBytes = file.bytes;
-                    selectedScanName = file.name;
-                    if (nomFichierCtrl.text.isEmpty) {
-                      nomFichierCtrl.text = file.name;
-                    }
-                  });
-                }
+                if (file.path == null) return;
+                final destinationPath = await AppDatabase.instance
+                    .buildManagedDocumentPath(
+                      folder: 'interchange',
+                      ownerLabel: conteneur.numeroConteneur ?? conteneur.uuid,
+                      fileName: file.name,
+                    );
+                setDialogState(() {
+                  selectedSourcePath = file.path;
+                  selectedScanName = file.name;
+                  nomFichierCtrl.text = destinationPath;
+                });
               }
             }
 
             Future<void> save() async {
-              if (selectedScanBytes == null) {
+              if (selectedSourcePath == null) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Veuillez choisir un fichier scan.')),
-                );
-                return;
-              }
-              final nom = nomFichierCtrl.text.trim();
-              if (nom.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Le nom de fichier est requis.')),
+                  const SnackBar(
+                    content: Text('Veuillez choisir un fichier scan.'),
+                  ),
                 );
                 return;
               }
@@ -610,10 +783,15 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
               }
               setDialogState(() => isSaving = true);
               try {
+                final localPath = await AppDatabase.instance
+                    .storeManagedDocument(
+                      folder: 'interchange',
+                      ownerLabel: conteneur.numeroConteneur ?? conteneur.uuid,
+                      sourcePath: selectedSourcePath!,
+                    );
                 await AppDatabase.instance.createInterchange(
                   conteneurUuid: conteneur.uuid,
-                  scan: selectedScanBytes!,
-                  nomFichier: nom,
+                  nomFichier: localPath,
                   page: page,
                 );
                 pageCtrl.clear();
@@ -622,7 +800,7 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                     .getInterchangesByConteneur(conteneur.uuid);
                 if (!mounted) return;
                 setDialogState(() {
-                  selectedScanBytes = null;
+                  selectedSourcePath = null;
                   selectedScanName = null;
                   interchanges = items;
                 });
@@ -642,12 +820,14 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                   ),
                   actions: [
                     TextButton(
-                        onPressed: () => Navigator.pop(c, false),
-                        child: const Text('Annuler')),
+                      onPressed: () => Navigator.pop(c, false),
+                      child: const Text('Annuler'),
+                    ),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white),
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      ),
                       onPressed: () => Navigator.pop(c, true),
                       child: const Text('Supprimer'),
                     ),
@@ -664,7 +844,8 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
 
             return AlertDialog(
               title: Text(
-                  'Interchanges – ${conteneur.numeroConteneur ?? conteneur.uuid}'),
+                'Interchanges – ${conteneur.numeroConteneur ?? conteneur.uuid}',
+              ),
               content: SizedBox(
                 width: 700,
                 height: 520,
@@ -677,18 +858,22 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Ajouter un interchange',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF1A237E))),
+                            const Text(
+                              'Ajouter un interchange',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1A237E),
+                              ),
+                            ),
                             const SizedBox(height: 12),
                             Row(
                               children: [
                                 Expanded(
                                   child: TextFormField(
                                     controller: nomFichierCtrl,
+                                    readOnly: true,
                                     decoration: const InputDecoration(
-                                      labelText: 'Nom fichier',
+                                      labelText: 'Chemin local du fichier',
                                       border: OutlineInputBorder(),
                                       prefixIcon: Icon(Icons.attach_file),
                                     ),
@@ -710,9 +895,11 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                                 OutlinedButton.icon(
                                   onPressed: pickFile,
                                   icon: const Icon(Icons.upload_file_outlined),
-                                  label: Text(selectedScanName != null
-                                      ? selectedScanName!
-                                      : 'Choisir fichier'),
+                                  label: Text(
+                                    selectedScanName != null
+                                        ? selectedScanName!
+                                        : 'Choisir fichier',
+                                  ),
                                 ),
                                 const SizedBox(width: 8),
                                 ElevatedButton.icon(
@@ -726,8 +913,10 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                                           width: 16,
                                           height: 16,
                                           child: CircularProgressIndicator(
-                                              color: Colors.white,
-                                              strokeWidth: 2))
+                                            color: Colors.white,
+                                            strokeWidth: 2,
+                                          ),
+                                        )
                                       : const Icon(Icons.save_outlined),
                                   label: const Text('Sauvegarder'),
                                 ),
@@ -741,33 +930,69 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                     Expanded(
                       child: interchanges.isEmpty
                           ? const Center(
-                              child: Text('Aucun interchange pour ce conteneur.'))
+                              child: Text(
+                                'Aucun interchange pour ce conteneur.',
+                              ),
+                            )
                           : HorizontalTableScroller(
                               child: SingleChildScrollView(
                                 child: DataTable(
                                   headingRowColor: WidgetStateProperty.all(
-                                      const Color(0xFF1A237E)
-                                          .withValues(alpha: 0.08)),
+                                    const Color(
+                                      0xFF1A237E,
+                                    ).withValues(alpha: 0.08),
+                                  ),
                                   columns: const [
                                     DataColumn(label: Text('Actions')),
                                     DataColumn(label: Text('Page')),
                                     DataColumn(label: Text('Fichier')),
                                   ],
                                   rows: interchanges
-                                      .map((ic) => DataRow(cells: [
-                                            DataCell(IconButton(
-                                              icon: const Icon(
-                                                  Icons.delete_outline,
-                                                  color: Colors.red),
-                                              tooltip: 'Supprimer',
-                                              onPressed: () =>
-                                                  deleteInterchange(ic),
-                                            )),
+                                      .map(
+                                        (ic) => DataRow(
+                                          cells: [
                                             DataCell(
-                                                Text(ic.page?.toString() ?? '-')),
+                                              Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  IconButton(
+                                                    icon: const Icon(
+                                                      Icons.visibility_outlined,
+                                                      color: Color(0xFF1A237E),
+                                                    ),
+                                                    tooltip: 'Visualiser',
+                                                    onPressed: () =>
+                                                        _viewLocalDocument(
+                                                          ic.nomFichier,
+                                                        ),
+                                                  ),
+                                                  IconButton(
+                                                    icon: const Icon(
+                                                      Icons.delete_outline,
+                                                      color: Colors.red,
+                                                    ),
+                                                    tooltip: 'Supprimer',
+                                                    onPressed: () =>
+                                                        deleteInterchange(ic),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
                                             DataCell(
-                                                Text(ic.nomFichier ?? '-')),
-                                          ]))
+                                              Text(ic.page?.toString() ?? '-'),
+                                            ),
+                                            DataCell(
+                                              Text(
+                                                ic.nomFichier == null
+                                                    ? '-'
+                                                    : path.basename(
+                                                        ic.nomFichier!,
+                                                      ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      )
                                       .toList(),
                                 ),
                               ),
@@ -778,8 +1003,9 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
               ),
               actions: [
                 TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Fermer')),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Fermer'),
+                ),
               ],
             );
           },
@@ -819,6 +1045,38 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
       fontWeight: FontWeight.w600,
       color: Color(0xFF1A237E),
     );
+    final header = InkWell(
+      onTap: () => setState(() => _isFormExpanded = !_isFormExpanded),
+      child: Row(
+        children: [
+          Icon(
+            isEditing ? Icons.edit_outlined : Icons.add_box_outlined,
+            color: const Color(0xFF1A237E),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              isEditing ? 'Modifier le conteneur' : 'Ajouter un conteneur',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1A237E),
+              ),
+            ),
+          ),
+          Icon(
+            _isFormExpanded ? Icons.expand_less : Icons.expand_more,
+            color: const Color(0xFF1A237E),
+          ),
+        ],
+      ),
+    );
+    if (!_isFormExpanded) {
+      return Card(
+        elevation: 2,
+        child: Padding(padding: const EdgeInsets.all(20), child: header),
+      );
+    }
 
     return Card(
       elevation: 2,
@@ -830,25 +1088,7 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  Icon(
-                    isEditing ? Icons.edit_outlined : Icons.add_box_outlined,
-                    color: const Color(0xFF1A237E),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    isEditing
-                        ? 'Modifier le conteneur'
-                        : 'Ajouter un conteneur',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A237E),
-                    ),
-                  ),
-                ],
-              ),
+              header,
               const Divider(height: 20),
 
               // ── Dossier + numéro + dimension
@@ -865,10 +1105,12 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                         prefixIcon: Icon(Icons.folder_outlined),
                       ),
                       items: _activeDossiers
-                          .map((d) => DropdownMenuItem(
-                                value: d.uuid,
-                                child: Text(d.numeroBl ?? d.uuid),
-                              ))
+                          .map(
+                            (d) => DropdownMenuItem(
+                              value: d.uuid,
+                              child: Text(d.numeroBl ?? d.uuid),
+                            ),
+                          )
                           .toList(),
                       onChanged: (v) =>
                           setState(() => _selectedDossierUuid = v),
@@ -902,11 +1144,50 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                         prefixIcon: Icon(Icons.straighten_outlined),
                       ),
                       items: _kDimensions
-                          .map((d) =>
-                              DropdownMenuItem(value: d, child: Text(d)))
+                          .map(
+                            (d) => DropdownMenuItem(value: d, child: Text(d)),
+                          )
                           .toList(),
-                      onChanged: (v) =>
-                          setState(() => _selectedDimension = v),
+                      onChanged: (v) => setState(() => _selectedDimension = v),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _poidsCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Poids',
+                        suffixText: 'kg',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.scale_outlined),
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      validator: (value) {
+                        final text = value?.trim().replaceAll(',', '.') ?? '';
+                        if (text.isNotEmpty && double.tryParse(text) == null) {
+                          return 'Nombre invalide';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 3,
+                    child: TextFormField(
+                      controller: _natureMarchandiseCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Nature de la marchandise',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.category_outlined),
+                      ),
                     ),
                   ),
                 ],
@@ -1006,16 +1287,23 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                 children: [
                   Expanded(
                     child: _dateField(
-                        'Arrivée lieu déchargement', _dateArriverLieuCtrl),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _dateField('Date déchargement', _dateDechargementCtrl),
+                      'Arrivée lieu déchargement',
+                      _dateArriverLieuCtrl,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: _dateField(
-                        'Départ retour port', _dateDepartRetourCtrl),
+                      'Date déchargement',
+                      _dateDechargementCtrl,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _dateField(
+                      'Départ retour port',
+                      _dateDepartRetourCtrl,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -1043,17 +1331,24 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                       backgroundColor: const Color(0xFF1A237E),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 14),
+                        horizontal: 24,
+                        vertical: 14,
+                      ),
                     ),
                     icon: _isSaving
                         ? const SizedBox(
                             width: 16,
                             height: 16,
                             child: CircularProgressIndicator(
-                                color: Colors.white, strokeWidth: 2))
-                        : Icon(isEditing
-                            ? Icons.save_outlined
-                            : Icons.add_box_outlined),
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Icon(
+                            isEditing
+                                ? Icons.save_outlined
+                                : Icons.add_box_outlined,
+                          ),
                     label: Text(isEditing ? 'Enregistrer' : 'Ajouter'),
                   ),
                 ],
@@ -1068,6 +1363,34 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
   // ── Grid ──────────────────────────────────────────────────────────────────
   Widget _buildGrid() {
     final rows = _filtered;
+    if (!_isGridExpanded) {
+      return Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: InkWell(
+            onTap: () => setState(() => _isGridExpanded = true),
+            child: const Row(
+              children: [
+                Icon(Icons.inventory_2_outlined, color: Color(0xFF1A237E)),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Conteneurs actifs',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1A237E),
+                    ),
+                  ),
+                ),
+                Icon(Icons.expand_more, color: Color(0xFF1A237E)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Card(
       elevation: 2,
       child: Padding(
@@ -1077,7 +1400,10 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.inventory_2_outlined, color: Color(0xFF1A237E)),
+                const Icon(
+                  Icons.inventory_2_outlined,
+                  color: Color(0xFF1A237E),
+                ),
                 const SizedBox(width: 8),
                 const Text(
                   'Conteneurs actifs',
@@ -1106,30 +1432,41 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                     ),
                   ),
                 ),
+                IconButton(
+                  tooltip: 'Replier la liste',
+                  onPressed: () => setState(() => _isGridExpanded = false),
+                  icon: const Icon(Icons.expand_less, color: Color(0xFF1A237E)),
+                ),
               ],
             ),
             const Divider(height: 20),
             if (_isLoading)
-              const Expanded(
-                  child: Center(child: CircularProgressIndicator()))
+              const Expanded(child: Center(child: CircularProgressIndicator()))
             else if (rows.isEmpty)
               const Expanded(
-                  child: Center(
-                      child: Text('Aucun conteneur trouvé.',
-                          style: TextStyle(color: Colors.grey))))
+                child: Center(
+                  child: Text(
+                    'Aucun conteneur trouvé.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              )
             else
               Expanded(
                 child: HorizontalTableScroller(
                   child: SingleChildScrollView(
                     child: DataTable(
                       headingRowColor: WidgetStateProperty.all(
-                          const Color(0xFF1A237E).withValues(alpha: 0.08)),
+                        const Color(0xFF1A237E).withValues(alpha: 0.08),
+                      ),
                       columns: const [
                         DataColumn(label: Text('Actions')),
                         DataColumn(label: Text('N° Conteneur')),
                         DataColumn(label: Text('N° BL (Dossier)')),
                         DataColumn(label: Text('Client')),
                         DataColumn(label: Text('Dimension')),
+                        DataColumn(label: Text('Poids')),
+                        DataColumn(label: Text('Nature marchandise')),
                         DataColumn(label: Text('Date sortie port')),
                         DataColumn(label: Text('Transporteur')),
                       ],
@@ -1137,11 +1474,13 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                         final isEditing =
                             _editingConteneur?.uuid == row['uuid'] as String?;
                         return DataRow(
-                          color: WidgetStateProperty.resolveWith((states) =>
-                              isEditing
-                                  ? const Color(0xFF1A237E)
-                                      .withValues(alpha: 0.08)
-                                  : null),
+                          color: WidgetStateProperty.resolveWith(
+                            (states) => isEditing
+                                ? const Color(
+                                    0xFF1A237E,
+                                  ).withValues(alpha: 0.08)
+                                : null,
+                          ),
                           cells: [
                             DataCell(
                               Row(
@@ -1149,34 +1488,44 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                                 children: [
                                   if (_canEdit)
                                     IconButton(
-                                      icon: const Icon(Icons.edit_outlined,
-                                          color: Color(0xFF1A237E)),
+                                      icon: const Icon(
+                                        Icons.edit_outlined,
+                                        color: Color(0xFF1A237E),
+                                      ),
                                       tooltip: 'Modifier',
                                       onPressed: () => _startEdit(row),
                                     ),
                                   if (_canDelete)
                                     IconButton(
-                                      icon: const Icon(Icons.delete_outline,
-                                          color: Colors.red),
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.red,
+                                      ),
                                       tooltip: 'Supprimer',
                                       onPressed: () => _confirmDelete(row),
                                     ),
                                   IconButton(
                                     icon: const Icon(
-                                        Icons.format_list_bulleted_outlined,
-                                        color: Color(0xFF0288D1)),
+                                      Icons.format_list_bulleted_outlined,
+                                      color: Color(0xFF0288D1),
+                                    ),
                                     tooltip: 'Détails (articles)',
                                     onPressed: () => _showArticlesDialog(row),
                                   ),
                                   IconButton(
-                                    icon: const Icon(Icons.swap_horiz,
-                                        color: Color(0xFF00695C)),
+                                    icon: const Icon(
+                                      Icons.swap_horiz,
+                                      color: Color(0xFF00695C),
+                                    ),
                                     tooltip: 'Interchanges',
-                                    onPressed: () => _showInterchangesDialog(row),
+                                    onPressed: () =>
+                                        _showInterchangesDialog(row),
                                   ),
                                   IconButton(
-                                    icon: const Icon(Icons.info_outline,
-                                        color: Colors.blueGrey),
+                                    icon: const Icon(
+                                      Icons.info_outline,
+                                      color: Colors.blueGrey,
+                                    ),
                                     tooltip: 'Voir tous les détails',
                                     onPressed: () => _showDetailsPopup(row),
                                   ),
@@ -1192,21 +1541,33 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
                                   child: Text(
                                     row['numero_conteneur'] as String? ?? '-',
                                     style: const TextStyle(
-                                        fontWeight: FontWeight.w600),
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
+                            DataCell(Text(row['numero_bl'] as String? ?? '-')),
+                            DataCell(Text(row['client_nom'] as String? ?? '-')),
+                            DataCell(Text(row['dimension'] as String? ?? '-')),
                             DataCell(
-                                Text(row['numero_bl'] as String? ?? '-')),
+                              Text(
+                                row['poids'] == null
+                                    ? '-'
+                                    : '${row['poids']} kg',
+                              ),
+                            ),
                             DataCell(
-                                Text(row['client_nom'] as String? ?? '-')),
+                              Text(row['nature_marchandise'] as String? ?? '-'),
+                            ),
                             DataCell(
-                                Text(row['dimension'] as String? ?? '-')),
-                            DataCell(Text(_formatDate(
-                                row['date_sorti_port'] as String?))),
-                            DataCell(Text(
-                                row['nom_transporteur'] as String? ?? '-')),
+                              Text(
+                                _formatDate(row['date_sorti_port'] as String?),
+                              ),
+                            ),
+                            DataCell(
+                              Text(row['nom_transporteur'] as String? ?? '-'),
+                            ),
                           ],
                         );
                       }).toList(),
@@ -1229,7 +1590,7 @@ class _ConteneursMakosoScreenState extends State<ConteneursMakosoScreen> {
         children: [
           _buildForm(),
           const SizedBox(height: 16),
-          Expanded(child: _buildGrid()),
+          if (_isGridExpanded) Expanded(child: _buildGrid()) else _buildGrid(),
         ],
       ),
     );

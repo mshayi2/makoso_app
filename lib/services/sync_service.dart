@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as path;
 
 import '../database/app_database.dart';
 import 'api_config.dart';
@@ -100,7 +102,9 @@ class AppSyncService {
 
   Future<SyncResult> synchronize() async {
     if (_isRunning) {
-      final result = SyncResult.skipped('Une synchronisation est déjà en cours.');
+      final result = SyncResult.skipped(
+        'Une synchronisation est déjà en cours.',
+      );
       _emitNotification(result);
       return result;
     }
@@ -136,9 +140,7 @@ class AppSyncService {
   }
 
   Future<int> _runPullPhase() async {
-    final payload = {
-      'tables': await _database.getSyncTableStates(),
-    };
+    final payload = {'tables': await _database.getSyncTableStates()};
     final response = await _postJsonMap('/get_data', payload);
 
     var appliedChanges = 0;
@@ -154,10 +156,12 @@ class AppSyncService {
         }
 
         final record = Map<String, dynamic>.from(
-          rawRecord.map(
-            (key, value) => MapEntry(key.toString(), value),
-          ),
+          rawRecord.map((key, value) => MapEntry(key.toString(), value)),
         );
+
+        if (table == 'scan_bl') {
+          await _database.preparePulledScanBlRecord(record);
+        }
 
         if (table == 'interchange') {
           final action = record['action']?.toString().trim() ?? '';
@@ -171,6 +175,11 @@ class AppSyncService {
               record['scan'] = scanBytes;
             }
           }
+          await _database.preparePulledInterchangeRecord(record);
+        }
+
+        if (table == 'scan_voyage') {
+          await _database.preparePulledScanVoyageRecord(record);
         }
 
         appliedChanges += await _applyPullRecord(table, record);
@@ -180,7 +189,10 @@ class AppSyncService {
     return appliedChanges;
   }
 
-  Future<int> _applyPullRecord(String table, Map<String, dynamic> record) async {
+  Future<int> _applyPullRecord(
+    String table,
+    Map<String, dynamic> record,
+  ) async {
     final action = record['action']?.toString().trim();
     if (action == null || action.isEmpty || action == 'I') {
       await _database.upsertSyncRecord(table, record);
@@ -228,20 +240,19 @@ class AppSyncService {
     var deletedCount = 0;
 
     for (final table in AppDatabase.syncTables) {
-      if (table == 'interchange') continue; // handled separately after other tables
+      if (table == 'interchange') {
+        continue; // handled separately after other tables
+      }
 
       final pendingRecords = await _database.getPendingSyncRecords(table);
       if (pendingRecords.isEmpty) {
         continue;
       }
 
-      final outboundRecords = pendingRecords
-          .map((record) => Map<String, Object?>.from(record))
-          .toList();
-      final payload = {
-        'table_name': table,
-        'records': outboundRecords,
-      };
+      final outboundRecords = await Future.wait(
+        pendingRecords.map((record) => _prepareOutboundRecord(table, record)),
+      );
+      final payload = {'table_name': table, 'records': outboundRecords};
       debugPrint('[Sync][POST_DATA][$table] ${jsonEncode(payload)}');
       final response = await _postJsonList('/post_data', payload);
       final sentByUuid = <String, Map<String, Object?>>{
@@ -256,9 +267,7 @@ class AppSyncService {
         }
 
         final record = Map<String, dynamic>.from(
-          rawRecord.map(
-            (key, value) => MapEntry(key.toString(), value),
-          ),
+          rawRecord.map((key, value) => MapEntry(key.toString(), value)),
         );
         final uuid = record['uuid']?.toString();
         if (uuid == null || uuid.isEmpty) {
@@ -305,6 +314,27 @@ class AppSyncService {
       deletedCount: deletedCount,
     );
   }
+
+  Future<Map<String, Object?>> _prepareOutboundRecord(
+    String table,
+    Map<String, Object?> record,
+  ) async {
+    final outbound = Map<String, Object?>.from(record);
+    if (table == 'scan_bl' || table == 'scan_voyage') {
+      final filePath = outbound['nom_fichier']?.toString();
+      if (filePath != null && filePath.isNotEmpty) {
+        outbound['nom_fichier'] = path.basename(filePath);
+        final file = File(filePath);
+        outbound['scan'] = await file.exists()
+            ? await file.readAsBytes()
+            : null;
+      } else {
+        outbound['scan'] = null;
+      }
+    }
+    return outbound;
+  }
+
   Future<Map<String, dynamic>> _postJsonMap(
     String endpoint,
     Map<String, Object?> payload,
@@ -313,9 +343,7 @@ class AppSyncService {
     if (decoded is! Map) {
       throw const FormatException('Réponse JSON attendue au format objet.');
     }
-    return decoded.map(
-      (key, value) => MapEntry(key.toString(), value),
-    );
+    return decoded.map((key, value) => MapEntry(key.toString(), value));
   }
 
   Future<List<dynamic>> _postJsonList(
@@ -329,7 +357,10 @@ class AppSyncService {
     return decoded;
   }
 
-  Future<Object?> _postJson(String endpoint, Map<String, Object?> payload) async {
+  Future<Object?> _postJson(
+    String endpoint,
+    Map<String, Object?> payload,
+  ) async {
     final response = await _client
         .post(
           ApiConfig.uri(endpoint),
@@ -397,20 +428,22 @@ class AppSyncService {
         for (final entry in sentRecord.entries) {
           if (entry.key == 'scan') continue;
           if (entry.value != null) {
-            request.fields[entry.key] = entry.value.toString();
+            request.fields[entry.key] = entry.key == 'nom_fichier'
+                ? path.basename(entry.value.toString())
+                : entry.value.toString();
           }
         }
 
-        final scanValue = sentRecord['scan'];
-        if (scanValue != null) {
-          final scanBytes = scanValue is Uint8List
-              ? scanValue
-              : Uint8List.fromList(List<int>.from(scanValue as List));
+        final filePath = sentRecord['nom_fichier']?.toString();
+        if (filePath != null &&
+            filePath.isNotEmpty &&
+            await File(filePath).exists()) {
+          final scanBytes = await File(filePath).readAsBytes();
           request.files.add(
             http.MultipartFile.fromBytes(
               'scan',
               scanBytes,
-              filename: sentRecord['nom_fichier']?.toString() ?? 'scan',
+              filename: path.basename(filePath),
             ),
           );
         }
@@ -420,7 +453,9 @@ class AppSyncService {
         final response = await http.Response.fromStream(streamed);
 
         if (response.statusCode < 200 || response.statusCode >= 300) {
-          debugPrint('[Sync][POST_INTERCHANGE][$uuid] HTTP ${response.statusCode}: ${response.body}');
+          debugPrint(
+            '[Sync][POST_INTERCHANGE][$uuid] HTTP ${response.statusCode}: ${response.body}',
+          );
           continue;
         }
 
@@ -429,7 +464,8 @@ class AppSyncService {
           continue;
         }
 
-        final shouldUpdateSync = localSync == 0 || (localId > 0 && localSync < 0);
+        final shouldUpdateSync =
+            localSync == 0 || (localId > 0 && localSync < 0);
         if (shouldUpdateSync) {
           final decoded = jsonDecode(response.body);
           if (decoded is Map) {

@@ -7,6 +7,7 @@ class Dossier {
   final String? portChargement;
   final String? portDestination;
   final String? natureMarchandise;
+  final String? dateReceptionBl;
   final String? dateArriveePn;
   final String? dateArriveeMatadi;
   final String? datePaiement30Draft;
@@ -26,6 +27,7 @@ class Dossier {
     this.portChargement,
     this.portDestination,
     this.natureMarchandise,
+    this.dateReceptionBl,
     this.dateArriveePn,
     this.dateArriveeMatadi,
     this.datePaiement30Draft,
@@ -47,6 +49,7 @@ class Dossier {
       portChargement: m['port_chargement'] as String?,
       portDestination: m['port_destination'] as String?,
       natureMarchandise: m['nature_marchandise'] as String?,
+      dateReceptionBl: m['date_reception_bl'] as String?,
       dateArriveePn: m['date_arrivee_pn'] as String?,
       dateArriveeMatadi: m['date_arrivee_matadi'] as String?,
       datePaiement30Draft: m['date_paiement_30_draft'] as String?,

@@ -1,7 +1,8 @@
-import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as path;
 
 import '../database/app_database.dart';
 import '../models/client.dart';
@@ -15,12 +16,7 @@ import '../models/scan_bl.dart';
 import '../models/utilisateur.dart';
 import '../widgets/horizontal_table_scroller.dart';
 
-const List<String> _kStatuts = [
-  'En attente',
-  'En cours',
-  'Clôturé',
-  'Annulé',
-];
+const List<String> _kStatuts = ['En attente', 'En cours', 'Clôturé', 'Annulé'];
 
 const List<String> _kDossierStatusFilters = [
   'Tous',
@@ -36,10 +32,7 @@ const List<String> _kTypesBl = [
   'Message Release',
 ];
 
-const List<String> _kDimensionsConteneur = [
-  '20 Pieds',
-  '40 Piueds',
-];
+const List<String> _kDimensionsConteneur = ['20 Pieds', '40 Piueds'];
 
 class DossiersScreen extends StatefulWidget {
   final Utilisateur user;
@@ -55,6 +48,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
   final _portChargementCtrl = TextEditingController();
   final _portDestinationCtrl = TextEditingController();
   final _natureMarchandiseCtrl = TextEditingController();
+  final _dateReceptionBlCtrl = TextEditingController();
   final _dateArriveePnCtrl = TextEditingController();
   final _dateArriveeMatadictrl = TextEditingController();
   final _datePaiement30DraftCtrl = TextEditingController();
@@ -72,6 +66,8 @@ class _DossiersScreenState extends State<DossiersScreen> {
   Dossier? _editingDossier;
   bool _isSaving = false;
   bool _isLoading = true;
+  bool _isFormExpanded = true;
+  bool _isListExpanded = true;
 
   List<Dossier> _dossiers = [];
   List<Client> _clients = [];
@@ -92,6 +88,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
     _portChargementCtrl.dispose();
     _portDestinationCtrl.dispose();
     _natureMarchandiseCtrl.dispose();
+    _dateReceptionBlCtrl.dispose();
     _dateArriveePnCtrl.dispose();
     _dateArriveeMatadictrl.dispose();
     _datePaiement30DraftCtrl.dispose();
@@ -124,7 +121,8 @@ class _DossiersScreenState extends State<DossiersScreen> {
   List<Dossier> get _filteredDossiers {
     final q = _searchCtrl.text.trim().toLowerCase();
     return _dossiers.where((d) {
-      final matchesStatus = _selectedStatusFilter == 'Tous' || d.statut == _selectedStatusFilter;
+      final matchesStatus =
+          _selectedStatusFilter == 'Tous' || d.statut == _selectedStatusFilter;
       if (!matchesStatus) {
         return false;
       }
@@ -172,18 +170,24 @@ class _DossiersScreenState extends State<DossiersScreen> {
 
   void _startEdit(Dossier d) {
     setState(() {
+      _isFormExpanded = true;
       _editingDossier = d;
       _numeroBlCtrl.text = d.numeroBl ?? '';
       _portChargementCtrl.text = d.portChargement ?? '';
       _portDestinationCtrl.text = d.portDestination ?? '';
       _natureMarchandiseCtrl.text = d.natureMarchandise ?? '';
+      _dateReceptionBlCtrl.text = d.dateReceptionBl ?? '';
       _dateArriveePnCtrl.text = d.dateArriveePn ?? '';
       _dateArriveeMatadictrl.text = d.dateArriveeMatadi ?? '';
       _datePaiement30DraftCtrl.text = d.datePaiement30Draft ?? '';
       _datePaiement30PnCtrl.text = d.datePaiement30Pn ?? '';
       _datePaiement40MatadictrlCtrl.text = d.datePaiement40Matadi ?? '';
-      _montantCtrl.text = d.montantConvenu != null ? d.montantConvenu.toString() : '';
-      _selectedClientUuid = _clients.any((c) => c.uuid == d.clientUuid) ? d.clientUuid : null;
+      _montantCtrl.text = d.montantConvenu != null
+          ? d.montantConvenu.toString()
+          : '';
+      _selectedClientUuid = _clients.any((c) => c.uuid == d.clientUuid)
+          ? d.clientUuid
+          : null;
       _selectedStatut = _kStatuts.contains(d.statut) ? d.statut : null;
       _selectedTypeBl = _kTypesBl.contains(d.typeBl) ? d.typeBl : null;
     });
@@ -197,6 +201,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
       _portChargementCtrl.clear();
       _portDestinationCtrl.clear();
       _natureMarchandiseCtrl.clear();
+      _dateReceptionBlCtrl.clear();
       _dateArriveePnCtrl.clear();
       _dateArriveeMatadictrl.clear();
       _datePaiement30DraftCtrl.clear();
@@ -213,7 +218,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
     final isEditing = _editingDossier != null;
-    final montant = double.tryParse(_montantCtrl.text.trim().replaceAll(',', '.'));
+    final montant = double.tryParse(
+      _montantCtrl.text.trim().replaceAll(',', '.'),
+    );
     try {
       if (isEditing) {
         await AppDatabase.instance.updateDossier(
@@ -223,6 +230,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
           portChargement: _n(_portChargementCtrl.text),
           portDestination: _n(_portDestinationCtrl.text),
           natureMarchandise: _n(_natureMarchandiseCtrl.text),
+          dateReceptionBl: _n(_dateReceptionBlCtrl.text),
           dateArriveePn: _n(_dateArriveePnCtrl.text),
           dateArriveeMatadi: _n(_dateArriveeMatadictrl.text),
           datePaiement30Draft: _n(_datePaiement30DraftCtrl.text),
@@ -239,6 +247,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
           portChargement: _n(_portChargementCtrl.text),
           portDestination: _n(_portDestinationCtrl.text),
           natureMarchandise: _n(_natureMarchandiseCtrl.text),
+          dateReceptionBl: _n(_dateReceptionBlCtrl.text),
           dateArriveePn: _n(_dateArriveePnCtrl.text),
           dateArriveeMatadi: _n(_dateArriveeMatadictrl.text),
           datePaiement30Draft: _n(_datePaiement30DraftCtrl.text),
@@ -252,9 +261,15 @@ class _DossiersScreenState extends State<DossiersScreen> {
       _cancelEdit();
       await _loadAll();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(isEditing ? 'Dossier modifié avec succès.' : 'Dossier ajouté avec succès.'),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isEditing
+                  ? 'Dossier modifié avec succès.'
+                  : 'Dossier ajouté avec succès.',
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -272,11 +287,19 @@ class _DossiersScreenState extends State<DossiersScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Supprimer le dossier'),
-        content: Text('Voulez-vous vraiment supprimer le dossier "${d.numeroBl ?? d.uuid}" ?'),
+        content: Text(
+          'Voulez-vous vraiment supprimer le dossier "${d.numeroBl ?? d.uuid}" ?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Supprimer'),
           ),
@@ -288,7 +311,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
       await AppDatabase.instance.deleteDossier(d.uuid);
       await _loadAll();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Dossier supprimé.')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Dossier supprimé.')));
       }
     }
   }
@@ -357,37 +382,51 @@ class _DossiersScreenState extends State<DossiersScreen> {
                       children: [
                         _DossierInfo(label: 'N° BL', value: dossier.numeroBl),
                         _DossierInfo(
-                            label: 'Client',
-                            value: _clientLabel(dossier.clientUuid)),
+                          label: 'Client',
+                          value: _clientLabel(dossier.clientUuid),
+                        ),
                         _DossierInfo(label: 'Statut', value: dossier.statut),
                         _DossierInfo(label: 'Type BL', value: dossier.typeBl),
                         _DossierInfo(
-                            label: 'Port de chargement',
-                            value: dossier.portChargement),
+                          label: 'Port de chargement',
+                          value: dossier.portChargement,
+                        ),
                         _DossierInfo(
-                            label: 'Port de destination',
-                            value: dossier.portDestination),
+                          label: 'Port de destination',
+                          value: dossier.portDestination,
+                        ),
                         _DossierInfo(
-                            label: 'Marchandise',
-                            value: dossier.natureMarchandise),
+                          label: 'Marchandise',
+                          value: dossier.natureMarchandise,
+                        ),
                         _DossierInfo(
-                            label: 'Montant convenu',
-                            value: dossier.montantConvenu?.toStringAsFixed(2)),
+                          label: 'Réception BL',
+                          value: _formatDate(dossier.dateReceptionBl),
+                        ),
                         _DossierInfo(
-                            label: 'Arrivée PN',
-                            value: _formatDate(dossier.dateArriveePn)),
+                          label: 'Montant convenu',
+                          value: dossier.montantConvenu?.toStringAsFixed(2),
+                        ),
                         _DossierInfo(
-                            label: 'Arrivée Matadi',
-                            value: _formatDate(dossier.dateArriveeMatadi)),
+                          label: 'Arrivée PN',
+                          value: _formatDate(dossier.dateArriveePn),
+                        ),
                         _DossierInfo(
-                            label: 'Paiement 30% Draft',
-                            value: _formatDate(dossier.datePaiement30Draft)),
+                          label: 'Arrivée Matadi',
+                          value: _formatDate(dossier.dateArriveeMatadi),
+                        ),
                         _DossierInfo(
-                            label: 'Paiement 30% PN',
-                            value: _formatDate(dossier.datePaiement30Pn)),
+                          label: 'Paiement 30% Draft',
+                          value: _formatDate(dossier.datePaiement30Draft),
+                        ),
                         _DossierInfo(
-                            label: 'Paiement 40% Matadi',
-                            value: _formatDate(dossier.datePaiement40Matadi)),
+                          label: 'Paiement 30% PN',
+                          value: _formatDate(dossier.datePaiement30Pn),
+                        ),
+                        _DossierInfo(
+                          label: 'Paiement 40% Matadi',
+                          value: _formatDate(dossier.datePaiement40Matadi),
+                        ),
                       ],
                     ),
                   ),
@@ -396,7 +435,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
                     icon: Icons.account_balance_wallet_outlined,
                     title: "Dépôts d'argent (${depots.length})",
                     child: depots.isEmpty
-                        ? const _DossierEmpty(message: 'Aucun dépôt lié à ce dossier.')
+                        ? const _DossierEmpty(
+                            message: 'Aucun dépôt lié à ce dossier.',
+                          )
                         : HorizontalTableScroller(
                             child: DataTable(
                               columns: const [
@@ -408,14 +449,27 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                 DataColumn(label: Text('Observation')),
                               ],
                               rows: depots
-                                  .map((depot) => DataRow(cells: [
-                                        DataCell(Text(_formatDate(depot.datePaiement))),
+                                  .map(
+                                    (depot) => DataRow(
+                                      cells: [
+                                        DataCell(
+                                          Text(_formatDate(depot.datePaiement)),
+                                        ),
                                         DataCell(Text(depot.libelle ?? '-')),
-                                        DataCell(Text(depot.montant?.toStringAsFixed(2) ?? '-')),
+                                        DataCell(
+                                          Text(
+                                            depot.montant?.toStringAsFixed(2) ??
+                                                '-',
+                                          ),
+                                        ),
                                         DataCell(Text(depot.monnaieLabel)),
                                         DataCell(Text(depot.agent ?? '-')),
-                                        DataCell(Text(depot.observation ?? '-')),
-                                      ]))
+                                        DataCell(
+                                          Text(depot.observation ?? '-'),
+                                        ),
+                                      ],
+                                    ),
+                                  )
                                   .toList(),
                             ),
                           ),
@@ -425,7 +479,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
                     icon: Icons.money_off_outlined,
                     title: 'Dépenses (${depenses.length})',
                     child: depenses.isEmpty
-                        ? const _DossierEmpty(message: 'Aucune dépense liée à ce dossier.')
+                        ? const _DossierEmpty(
+                            message: 'Aucune dépense liée à ce dossier.',
+                          )
                         : HorizontalTableScroller(
                             child: DataTable(
                               columns: const [
@@ -438,15 +494,34 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                 DataColumn(label: Text('Observation')),
                               ],
                               rows: depenses
-                                  .map((depense) => DataRow(cells: [
-                                        DataCell(Text(_formatDate(depense.date))),
+                                  .map(
+                                    (depense) => DataRow(
+                                      cells: [
+                                        DataCell(
+                                          Text(_formatDate(depense.date)),
+                                        ),
                                         DataCell(Text(depense.libelle ?? '-')),
-                                        DataCell(Text(depense.montant?.toStringAsFixed(2) ?? '-')),
+                                        DataCell(
+                                          Text(
+                                            depense.montant?.toStringAsFixed(
+                                                  2,
+                                                ) ??
+                                                '-',
+                                          ),
+                                        ),
                                         DataCell(Text(depense.monnaieLabel)),
-                                        DataCell(Text(depense.validationStatus)),
-                                        DataCell(Text(depense.validateurNom ?? '-')),
-                                        DataCell(Text(depense.observation ?? '-')),
-                                      ]))
+                                        DataCell(
+                                          Text(depense.validationStatus),
+                                        ),
+                                        DataCell(
+                                          Text(depense.validateurNom ?? '-'),
+                                        ),
+                                        DataCell(
+                                          Text(depense.observation ?? '-'),
+                                        ),
+                                      ],
+                                    ),
+                                  )
                                   .toList(),
                             ),
                           ),
@@ -456,12 +531,16 @@ class _DossiersScreenState extends State<DossiersScreen> {
                     icon: Icons.inventory_2_outlined,
                     title: 'Conteneurs (${conteneurs.length})',
                     child: conteneurs.isEmpty
-                        ? const _DossierEmpty(message: 'Aucun conteneur lié à ce dossier.')
+                        ? const _DossierEmpty(
+                            message: 'Aucun conteneur lié à ce dossier.',
+                          )
                         : HorizontalTableScroller(
                             child: DataTable(
                               columns: const [
                                 DataColumn(label: Text('N° conteneur')),
                                 DataColumn(label: Text('Dimension')),
+                                DataColumn(label: Text('Poids')),
+                                DataColumn(label: Text('Nature marchandise')),
                                 DataColumn(label: Text('Sortie port')),
                                 DataColumn(label: Text('Transporteur')),
                                 DataColumn(label: Text('Plaque')),
@@ -470,16 +549,62 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                 DataColumn(label: Text('Retour port')),
                               ],
                               rows: conteneurs
-                                  .map((conteneur) => DataRow(cells: [
-                                        DataCell(Text(conteneur.numeroConteneur ?? '-')),
-                                        DataCell(Text(conteneur.dimension ?? '-')),
-                                        DataCell(Text(_formatDate(conteneur.dateSortiPort))),
-                                        DataCell(Text(conteneur.nomTransporteur ?? '-')),
-                                        DataCell(Text(conteneur.numeroPlaque ?? '-')),
-                                        DataCell(Text(conteneur.nomChauffeur ?? '-')),
-                                        DataCell(Text(conteneur.lieuDechargement ?? '-')),
-                                        DataCell(Text(_formatDate(conteneur.dateRetourPort))),
-                                      ]))
+                                  .map(
+                                    (conteneur) => DataRow(
+                                      cells: [
+                                        DataCell(
+                                          Text(
+                                            conteneur.numeroConteneur ?? '-',
+                                          ),
+                                        ),
+                                        DataCell(
+                                          Text(conteneur.dimension ?? '-'),
+                                        ),
+                                        DataCell(
+                                          Text(
+                                            conteneur.poids == null
+                                                ? '-'
+                                                : '${conteneur.poids} kg',
+                                          ),
+                                        ),
+                                        DataCell(
+                                          Text(
+                                            conteneur.natureMarchandise ?? '-',
+                                          ),
+                                        ),
+                                        DataCell(
+                                          Text(
+                                            _formatDate(
+                                              conteneur.dateSortiPort,
+                                            ),
+                                          ),
+                                        ),
+                                        DataCell(
+                                          Text(
+                                            conteneur.nomTransporteur ?? '-',
+                                          ),
+                                        ),
+                                        DataCell(
+                                          Text(conteneur.numeroPlaque ?? '-'),
+                                        ),
+                                        DataCell(
+                                          Text(conteneur.nomChauffeur ?? '-'),
+                                        ),
+                                        DataCell(
+                                          Text(
+                                            conteneur.lieuDechargement ?? '-',
+                                          ),
+                                        ),
+                                        DataCell(
+                                          Text(
+                                            _formatDate(
+                                              conteneur.dateRetourPort,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
                                   .toList(),
                             ),
                           ),
@@ -501,24 +626,36 @@ class _DossiersScreenState extends State<DossiersScreen> {
 
   Future<void> _showConteneursDialog(Dossier dossier) async {
     final numeroCtrl = TextEditingController();
+    final poidsCtrl = TextEditingController();
+    final natureMarchandiseCtrl = TextEditingController();
     final nomArticleCtrl = TextEditingController();
     final quantiteCtrl = TextEditingController();
     final uniteMesureCtrl = TextEditingController();
     String? selectedDimension;
-    var conteneurs = await AppDatabase.instance.getConteneursByDossier(dossier.uuid);
+    var conteneurs = await AppDatabase.instance.getConteneursByDossier(
+      dossier.uuid,
+    );
     Conteneur? selectedConteneur = conteneurs.firstOrNull;
     var details = selectedConteneur == null
         ? <DetailConteneur>[]
-        : await AppDatabase.instance.getDetailsByConteneur(selectedConteneur.uuid);
+        : await AppDatabase.instance.getDetailsByConteneur(
+            selectedConteneur.uuid,
+          );
     var isSaving = false;
     var isSavingDetail = false;
-    var interchangeCounts = await AppDatabase.instance.getInterchangeCountsByConteneur();
+    var interchangeCounts = await AppDatabase.instance
+        .getInterchangeCountsByConteneur();
 
     Future<void> refreshConteneurs(StateSetter setDialogState) async {
-      final items = await AppDatabase.instance.getConteneursByDossier(dossier.uuid);
-      final counts = await AppDatabase.instance.getInterchangeCountsByConteneur();
+      final items = await AppDatabase.instance.getConteneursByDossier(
+        dossier.uuid,
+      );
+      final counts = await AppDatabase.instance
+          .getInterchangeCountsByConteneur();
       final selectedUuid = selectedConteneur?.uuid;
-      final nextSelected = items.where((item) => item.uuid == selectedUuid).firstOrNull ?? items.firstOrNull;
+      final nextSelected =
+          items.where((item) => item.uuid == selectedUuid).firstOrNull ??
+          items.firstOrNull;
       final nextDetails = nextSelected == null
           ? <DetailConteneur>[]
           : await AppDatabase.instance.getDetailsByConteneur(nextSelected.uuid);
@@ -540,7 +677,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
         return;
       }
 
-      final items = await AppDatabase.instance.getDetailsByConteneur(current.uuid);
+      final items = await AppDatabase.instance.getDetailsByConteneur(
+        current.uuid,
+      );
       if (!mounted) return;
       setDialogState(() {
         details = items;
@@ -556,16 +695,33 @@ class _DossiersScreenState extends State<DossiersScreen> {
             builder: (dialogContext, setDialogState) {
               Future<void> addConteneur() async {
                 final numero = numeroCtrl.text.trim();
+                final poidsText = poidsCtrl.text.trim().replaceAll(',', '.');
+                final poids = poidsText.isEmpty
+                    ? null
+                    : double.tryParse(poidsText);
                 if (numero.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Le numéro de conteneur est requis.')),
+                    const SnackBar(
+                      content: Text('Le numéro de conteneur est requis.'),
+                    ),
                   );
                   return;
                 }
 
                 if (selectedDimension == null || selectedDimension!.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('La dimension du conteneur est requise.')),
+                    const SnackBar(
+                      content: Text('La dimension du conteneur est requise.'),
+                    ),
+                  );
+                  return;
+                }
+
+                if (poidsText.isNotEmpty && poids == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Le poids doit être un nombre valide.'),
+                    ),
                   );
                   return;
                 }
@@ -576,15 +732,24 @@ class _DossiersScreenState extends State<DossiersScreen> {
                     dossierUuid: dossier.uuid,
                     numeroConteneur: numero,
                     dimension: selectedDimension,
+                    poids: poids,
+                    natureMarchandise: natureMarchandiseCtrl.text.trim().isEmpty
+                        ? null
+                        : natureMarchandiseCtrl.text.trim(),
                   );
                   numeroCtrl.clear();
+                  poidsCtrl.clear();
+                  natureMarchandiseCtrl.clear();
                   setDialogState(() => selectedDimension = null);
                   await _loadAll();
                   await refreshConteneurs(setDialogState);
                 } catch (e) {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+                      SnackBar(
+                        content: Text('Erreur : $e'),
+                        backgroundColor: Colors.red,
+                      ),
                     );
                   }
                 } finally {
@@ -630,7 +795,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
                 final current = selectedConteneur;
                 if (current == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Sélectionnez d\'abord un conteneur.')),
+                    const SnackBar(
+                      content: Text('Sélectionnez d\'abord un conteneur.'),
+                    ),
                   );
                   return;
                 }
@@ -638,13 +805,20 @@ class _DossiersScreenState extends State<DossiersScreen> {
                 final nomArticle = nomArticleCtrl.text.trim();
                 if (nomArticle.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Le nom de l\'article est requis.')),
+                    const SnackBar(
+                      content: Text('Le nom de l\'article est requis.'),
+                    ),
                   );
                   return;
                 }
 
-                final quantiteText = quantiteCtrl.text.trim().replaceAll(',', '.');
-                final quantite = quantiteText.isEmpty ? null : double.tryParse(quantiteText);
+                final quantiteText = quantiteCtrl.text.trim().replaceAll(
+                  ',',
+                  '.',
+                );
+                final quantite = quantiteText.isEmpty
+                    ? null
+                    : double.tryParse(quantiteText);
                 if (quantiteText.isNotEmpty && quantite == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('La quantité est invalide.')),
@@ -667,7 +841,10 @@ class _DossiersScreenState extends State<DossiersScreen> {
                 } catch (e) {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+                      SnackBar(
+                        content: Text('Erreur : $e'),
+                        backgroundColor: Colors.red,
+                      ),
                     );
                   }
                 } finally {
@@ -709,7 +886,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
               }
 
               return AlertDialog(
-                title: Text('Conteneurs du dossier ${dossier.numeroBl ?? dossier.uuid}'),
+                title: Text(
+                  'Conteneurs du dossier ${dossier.numeroBl ?? dossier.uuid}',
+                ),
                 content: SizedBox(
                   width: 1100,
                   height: 620,
@@ -737,7 +916,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                     decoration: const InputDecoration(
                                       labelText: 'Numéro de conteneur',
                                       border: OutlineInputBorder(),
-                                      prefixIcon: Icon(Icons.inventory_2_outlined),
+                                      prefixIcon: Icon(
+                                        Icons.inventory_2_outlined,
+                                      ),
                                     ),
                                     onFieldSubmitted: (_) => addConteneur(),
                                   ),
@@ -747,15 +928,46 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                     decoration: const InputDecoration(
                                       labelText: 'Dimension',
                                       border: OutlineInputBorder(),
-                                      prefixIcon: Icon(Icons.straighten_outlined),
+                                      prefixIcon: Icon(
+                                        Icons.straighten_outlined,
+                                      ),
                                     ),
                                     items: _kDimensionsConteneur
-                                        .map((dimension) => DropdownMenuItem(
-                                              value: dimension,
-                                              child: Text(dimension),
-                                            ))
+                                        .map(
+                                          (dimension) => DropdownMenuItem(
+                                            value: dimension,
+                                            child: Text(dimension),
+                                          ),
+                                        )
                                         .toList(),
-                                    onChanged: (value) => setDialogState(() => selectedDimension = value),
+                                    onChanged: (value) => setDialogState(
+                                      () => selectedDimension = value,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: poidsCtrl,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Poids',
+                                      suffixText: 'kg',
+                                      border: OutlineInputBorder(),
+                                      prefixIcon: Icon(Icons.scale_outlined),
+                                    ),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    onFieldSubmitted: (_) => addConteneur(),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextFormField(
+                                    controller: natureMarchandiseCtrl,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Nature de la marchandise',
+                                      border: OutlineInputBorder(),
+                                      prefixIcon: Icon(Icons.category_outlined),
+                                    ),
+                                    onFieldSubmitted: (_) => addConteneur(),
                                   ),
                                   const SizedBox(height: 12),
                                   ElevatedButton.icon(
@@ -763,7 +975,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: const Color(0xFF1A237E),
                                       foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 16,
+                                      ),
                                     ),
                                     icon: isSaving
                                         ? const SizedBox(
@@ -788,63 +1002,156 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                   const SizedBox(height: 8),
                                   Expanded(
                                     child: conteneurs.isEmpty
-                                        ? const Center(child: Text('Aucun conteneur pour ce dossier.'))
+                                        ? const Center(
+                                            child: Text(
+                                              'Aucun conteneur pour ce dossier.',
+                                            ),
+                                          )
                                         : HorizontalTableScroller(
                                             child: SingleChildScrollView(
                                               child: DataTable(
-                                                headingRowColor: WidgetStateProperty.all(
-                                                  const Color(0xFF1A237E).withValues(alpha: 0.08),
-                                                ),
+                                                headingRowColor:
+                                                    WidgetStateProperty.all(
+                                                      const Color(
+                                                        0xFF1A237E,
+                                                      ).withValues(alpha: 0.08),
+                                                    ),
                                                 columns: const [
-                                                  DataColumn(label: Text('Actions')),
-                                                  DataColumn(label: Text('Numéro conteneur')),
-                                                  DataColumn(label: Text('Dimension')),
-                                                  DataColumn(label: Text('Interchange')),
+                                                  DataColumn(
+                                                    label: Text('Actions'),
+                                                  ),
+                                                  DataColumn(
+                                                    label: Text(
+                                                      'Numéro conteneur',
+                                                    ),
+                                                  ),
+                                                  DataColumn(
+                                                    label: Text('Dimension'),
+                                                  ),
+                                                  DataColumn(
+                                                    label: Text('Poids'),
+                                                  ),
+                                                  DataColumn(
+                                                    label: Text(
+                                                      'Nature marchandise',
+                                                    ),
+                                                  ),
+                                                  DataColumn(
+                                                    label: Text('Interchange'),
+                                                  ),
                                                 ],
-                                                rows: conteneurs.map((conteneur) {
-                                                  final isSelected = selectedConteneur?.uuid == conteneur.uuid;
+                                                rows: conteneurs.map((
+                                                  conteneur,
+                                                ) {
+                                                  final isSelected =
+                                                      selectedConteneur?.uuid ==
+                                                      conteneur.uuid;
                                                   return DataRow(
                                                     selected: isSelected,
-                                                    color: WidgetStateProperty.resolveWith(
-                                                      (states) => isSelected
-                                                          ? const Color(0xFF1A237E).withValues(alpha: 0.08)
-                                                          : null,
-                                                    ),
+                                                    color:
+                                                        WidgetStateProperty.resolveWith(
+                                                          (states) => isSelected
+                                                              ? const Color(
+                                                                  0xFF1A237E,
+                                                                ).withValues(
+                                                                  alpha: 0.08,
+                                                                )
+                                                              : null,
+                                                        ),
                                                     onSelectChanged: (_) async {
-                                                      selectedConteneur = conteneur;
-                                                      await refreshDetails(setDialogState);
+                                                      selectedConteneur =
+                                                          conteneur;
+                                                      await refreshDetails(
+                                                        setDialogState,
+                                                      );
                                                     },
                                                     cells: [
                                                       DataCell(
                                                         Row(
-                                                          mainAxisSize: MainAxisSize.min,
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
                                                           children: [
                                                             IconButton(
-                                                              icon: const Icon(Icons.swap_horiz, color: Color(0xFF1565C0)),
-                                                              tooltip: 'Gérer les interchanges',
+                                                              icon: const Icon(
+                                                                Icons
+                                                                    .swap_horiz,
+                                                                color: Color(
+                                                                  0xFF1565C0,
+                                                                ),
+                                                              ),
+                                                              tooltip:
+                                                                  'Gérer les interchanges',
                                                               onPressed: () async {
-                                                                await _showInterchangesDialog(dialogContext, conteneur);
-                                                                await refreshConteneurs(setDialogState);
+                                                                await _showInterchangesDialog(
+                                                                  dialogContext,
+                                                                  conteneur,
+                                                                );
+                                                                await refreshConteneurs(
+                                                                  setDialogState,
+                                                                );
                                                               },
                                                             ),
                                                             IconButton(
-                                                              icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                                              tooltip: 'Supprimer le conteneur et ses détails',
-                                                              onPressed: () => deleteConteneur(conteneur),
+                                                              icon: const Icon(
+                                                                Icons
+                                                                    .delete_outline,
+                                                                color:
+                                                                    Colors.red,
+                                                              ),
+                                                              tooltip:
+                                                                  'Supprimer le conteneur et ses détails',
+                                                              onPressed: () =>
+                                                                  deleteConteneur(
+                                                                    conteneur,
+                                                                  ),
                                                             ),
                                                           ],
                                                         ),
                                                       ),
                                                       DataCell(
                                                         Text(
-                                                          conteneur.numeroConteneur ?? '-',
+                                                          conteneur
+                                                                  .numeroConteneur ??
+                                                              '-',
                                                           style: TextStyle(
-                                                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                                                            fontWeight:
+                                                                isSelected
+                                                                ? FontWeight
+                                                                      .w600
+                                                                : FontWeight
+                                                                      .w400,
                                                           ),
                                                         ),
                                                       ),
-                                                      DataCell(Text(conteneur.dimension ?? '-')),
-                                                      DataCell(Text((interchangeCounts[conteneur.uuid] ?? 0).toString())),
+                                                      DataCell(
+                                                        Text(
+                                                          conteneur.dimension ??
+                                                              '-',
+                                                        ),
+                                                      ),
+                                                      DataCell(
+                                                        Text(
+                                                          conteneur.poids ==
+                                                                  null
+                                                              ? '-'
+                                                              : '${conteneur.poids} kg',
+                                                        ),
+                                                      ),
+                                                      DataCell(
+                                                        Text(
+                                                          conteneur
+                                                                  .natureMarchandise ??
+                                                              '-',
+                                                        ),
+                                                      ),
+                                                      DataCell(
+                                                        Text(
+                                                          (interchangeCounts[conteneur
+                                                                      .uuid] ??
+                                                                  0)
+                                                              .toString(),
+                                                        ),
+                                                      ),
                                                     ],
                                                   );
                                                 }).toList(),
@@ -859,10 +1166,13 @@ class _DossiersScreenState extends State<DossiersScreen> {
                             Expanded(
                               child: selectedConteneur == null
                                   ? const Center(
-                                      child: Text('Sélectionnez un conteneur pour saisir ses détails.'),
+                                      child: Text(
+                                        'Sélectionnez un conteneur pour saisir ses détails.',
+                                      ),
                                     )
                                   : Column(
-                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
                                       children: [
                                         Text(
                                           'Détails de ${selectedConteneur!.numeroConteneur ?? selectedConteneur!.uuid}',
@@ -877,7 +1187,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                           decoration: const InputDecoration(
                                             labelText: 'Nom article',
                                             border: OutlineInputBorder(),
-                                            prefixIcon: Icon(Icons.article_outlined),
+                                            prefixIcon: Icon(
+                                              Icons.article_outlined,
+                                            ),
                                           ),
                                           onFieldSubmitted: (_) => addDetail(),
                                         ),
@@ -887,9 +1199,14 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                           decoration: const InputDecoration(
                                             labelText: 'Quantité',
                                             border: OutlineInputBorder(),
-                                            prefixIcon: Icon(Icons.numbers_outlined),
+                                            prefixIcon: Icon(
+                                              Icons.numbers_outlined,
+                                            ),
                                           ),
-                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                          keyboardType:
+                                              const TextInputType.numberWithOptions(
+                                                decimal: true,
+                                              ),
                                         ),
                                         const SizedBox(height: 12),
                                         TextFormField(
@@ -897,27 +1214,38 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                           decoration: const InputDecoration(
                                             labelText: 'Unité mesure',
                                             border: OutlineInputBorder(),
-                                            prefixIcon: Icon(Icons.straighten_outlined),
+                                            prefixIcon: Icon(
+                                              Icons.straighten_outlined,
+                                            ),
                                           ),
                                         ),
                                         const SizedBox(height: 12),
                                         ElevatedButton.icon(
-                                          onPressed: isSavingDetail ? null : addDetail,
+                                          onPressed: isSavingDetail
+                                              ? null
+                                              : addDetail,
                                           style: ElevatedButton.styleFrom(
-                                            backgroundColor: const Color(0xFF1565C0),
+                                            backgroundColor: const Color(
+                                              0xFF1565C0,
+                                            ),
                                             foregroundColor: Colors.white,
-                                            padding: const EdgeInsets.symmetric(vertical: 16),
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 16,
+                                            ),
                                           ),
                                           icon: isSavingDetail
                                               ? const SizedBox(
                                                   width: 16,
                                                   height: 16,
-                                                  child: CircularProgressIndicator(
-                                                    color: Colors.white,
-                                                    strokeWidth: 2,
-                                                  ),
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        color: Colors.white,
+                                                        strokeWidth: 2,
+                                                      ),
                                                 )
-                                              : const Icon(Icons.playlist_add_outlined),
+                                              : const Icon(
+                                                  Icons.playlist_add_outlined,
+                                                ),
                                           label: const Text('Ajouter détail'),
                                         ),
                                         const SizedBox(height: 16),
@@ -931,36 +1259,87 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                         const SizedBox(height: 8),
                                         Expanded(
                                           child: details.isEmpty
-                                              ? const Center(child: Text('Aucun détail pour ce conteneur.'))
+                                              ? const Center(
+                                                  child: Text(
+                                                    'Aucun détail pour ce conteneur.',
+                                                  ),
+                                                )
                                               : HorizontalTableScroller(
                                                   child: SingleChildScrollView(
                                                     child: DataTable(
-                                                      headingRowColor: WidgetStateProperty.all(
-                                                        const Color(0xFF1565C0).withValues(alpha: 0.08),
-                                                      ),
+                                                      headingRowColor:
+                                                          WidgetStateProperty.all(
+                                                            const Color(
+                                                              0xFF1565C0,
+                                                            ).withValues(
+                                                              alpha: 0.08,
+                                                            ),
+                                                          ),
                                                       columns: const [
-                                                        DataColumn(label: Text('Actions')),
-                                                        DataColumn(label: Text('Article')),
-                                                        DataColumn(label: Text('Quantité')),
-                                                        DataColumn(label: Text('Unité')),
+                                                        DataColumn(
+                                                          label: Text(
+                                                            'Actions',
+                                                          ),
+                                                        ),
+                                                        DataColumn(
+                                                          label: Text(
+                                                            'Article',
+                                                          ),
+                                                        ),
+                                                        DataColumn(
+                                                          label: Text(
+                                                            'Quantité',
+                                                          ),
+                                                        ),
+                                                        DataColumn(
+                                                          label: Text('Unité'),
+                                                        ),
                                                       ],
-                                                      rows: details.map((detail) {
+                                                      rows: details.map((
+                                                        detail,
+                                                      ) {
                                                         return DataRow(
                                                           cells: [
                                                             DataCell(
                                                               IconButton(
-                                                                icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                                                tooltip: 'Supprimer',
-                                                                onPressed: () => deleteDetail(detail),
+                                                                icon: const Icon(
+                                                                  Icons
+                                                                      .delete_outline,
+                                                                  color: Colors
+                                                                      .red,
+                                                                ),
+                                                                tooltip:
+                                                                    'Supprimer',
+                                                                onPressed: () =>
+                                                                    deleteDetail(
+                                                                      detail,
+                                                                    ),
                                                               ),
                                                             ),
-                                                            DataCell(Text(detail.nomArticle ?? '-')),
-                                                            DataCell(Text(
-                                                              detail.quantite != null
-                                                                  ? detail.quantite!.toStringAsFixed(2)
-                                                                  : '-',
-                                                            )),
-                                                            DataCell(Text(detail.uniteMesure ?? '-')),
+                                                            DataCell(
+                                                              Text(
+                                                                detail.nomArticle ??
+                                                                    '-',
+                                                              ),
+                                                            ),
+                                                            DataCell(
+                                                              Text(
+                                                                detail.quantite !=
+                                                                        null
+                                                                    ? detail
+                                                                          .quantite!
+                                                                          .toStringAsFixed(
+                                                                            2,
+                                                                          )
+                                                                    : '-',
+                                                              ),
+                                                            ),
+                                                            DataCell(
+                                                              Text(
+                                                                detail.uniteMesure ??
+                                                                    '-',
+                                                              ),
+                                                            ),
                                                           ],
                                                         );
                                                       }).toList(),
@@ -990,6 +1369,8 @@ class _DossiersScreenState extends State<DossiersScreen> {
       );
     } finally {
       numeroCtrl.dispose();
+      poidsCtrl.dispose();
+      natureMarchandiseCtrl.dispose();
       nomArticleCtrl.dispose();
       quantiteCtrl.dispose();
       uniteMesureCtrl.dispose();
@@ -1002,9 +1383,11 @@ class _DossiersScreenState extends State<DossiersScreen> {
   ) async {
     final pageCtrl = TextEditingController();
     final nomFichierCtrl = TextEditingController();
-    Uint8List? selectedScanBytes;
+    String? selectedSourcePath;
     String? selectedScanName;
-    var interchanges = await AppDatabase.instance.getInterchangesByConteneur(conteneur.uuid);
+    var interchanges = await AppDatabase.instance.getInterchangesByConteneur(
+      conteneur.uuid,
+    );
     var isSaving = false;
 
     try {
@@ -1017,35 +1400,43 @@ class _DossiersScreenState extends State<DossiersScreen> {
             builder: (ctx, setDialogState) {
               Future<void> pickFile() async {
                 final result = await FilePicker.platform.pickFiles(
-                  type: FileType.any,
+                  type: FileType.custom,
+                  allowedExtensions: const [
+                    'pdf',
+                    'png',
+                    'jpg',
+                    'jpeg',
+                    'gif',
+                    'webp',
+                    'bmp',
+                  ],
                   allowMultiple: false,
-                  withData: true,
                 );
                 if (result != null && result.files.isNotEmpty) {
                   final file = result.files.first;
-                  if (file.bytes != null) {
-                    setDialogState(() {
-                      selectedScanBytes = file.bytes;
-                      selectedScanName = file.name;
-                      if (nomFichierCtrl.text.isEmpty) {
-                        nomFichierCtrl.text = file.name;
-                      }
-                    });
+                  if (file.path == null) {
+                    return;
                   }
+                  final destinationPath = await AppDatabase.instance
+                      .buildManagedDocumentPath(
+                        folder: 'interchange',
+                        ownerLabel: conteneur.numeroConteneur ?? conteneur.uuid,
+                        fileName: file.name,
+                      );
+                  setDialogState(() {
+                    selectedSourcePath = file.path;
+                    selectedScanName = file.name;
+                    nomFichierCtrl.text = destinationPath;
+                  });
                 }
               }
 
               Future<void> save() async {
-                if (selectedScanBytes == null) {
+                if (selectedSourcePath == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Veuillez choisir un fichier scan.')),
-                  );
-                  return;
-                }
-                final nomFichier = nomFichierCtrl.text.trim();
-                if (nomFichier.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Le nom de fichier est requis.')),
+                    const SnackBar(
+                      content: Text('Veuillez choisir un fichier scan.'),
+                    ),
                   );
                   return;
                 }
@@ -1053,31 +1444,42 @@ class _DossiersScreenState extends State<DossiersScreen> {
                 final page = pageText.isEmpty ? null : int.tryParse(pageText);
                 if (pageText.isNotEmpty && page == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Le numéro de page est invalide.')),
+                    const SnackBar(
+                      content: Text('Le numéro de page est invalide.'),
+                    ),
                   );
                   return;
                 }
                 setDialogState(() => isSaving = true);
                 try {
+                  final localPath = await AppDatabase.instance
+                      .storeManagedDocument(
+                        folder: 'interchange',
+                        ownerLabel: conteneur.numeroConteneur ?? conteneur.uuid,
+                        sourcePath: selectedSourcePath!,
+                      );
                   await AppDatabase.instance.createInterchange(
                     conteneurUuid: conteneur.uuid,
-                    scan: selectedScanBytes!,
-                    nomFichier: nomFichier,
+                    nomFichier: localPath,
                     page: page,
                   );
                   pageCtrl.clear();
                   nomFichierCtrl.clear();
-                  final items = await AppDatabase.instance.getInterchangesByConteneur(conteneur.uuid);
+                  final items = await AppDatabase.instance
+                      .getInterchangesByConteneur(conteneur.uuid);
                   if (!mounted) return;
                   setDialogState(() {
-                    selectedScanBytes = null;
+                    selectedSourcePath = null;
                     selectedScanName = null;
                     interchanges = items;
                   });
                 } catch (e) {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+                      SnackBar(
+                        content: Text('Erreur : $e'),
+                        backgroundColor: Colors.red,
+                      ),
                     );
                   }
                 } finally {
@@ -1111,13 +1513,16 @@ class _DossiersScreenState extends State<DossiersScreen> {
                 );
                 if (confirmed != true) return;
                 await AppDatabase.instance.deleteInterchange(interchange.uuid);
-                final items = await AppDatabase.instance.getInterchangesByConteneur(conteneur.uuid);
+                final items = await AppDatabase.instance
+                    .getInterchangesByConteneur(conteneur.uuid);
                 if (!mounted) return;
                 setDialogState(() => interchanges = items);
               }
 
               return AlertDialog(
-                title: Text('Interchanges – ${conteneur.numeroConteneur ?? conteneur.uuid}'),
+                title: Text(
+                  'Interchanges – ${conteneur.numeroConteneur ?? conteneur.uuid}',
+                ),
                 content: SizedBox(
                   width: 700,
                   height: 520,
@@ -1158,10 +1563,13 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                     flex: 2,
                                     child: TextField(
                                       controller: nomFichierCtrl,
+                                      readOnly: true,
                                       decoration: const InputDecoration(
-                                        labelText: 'Nom fichier',
+                                        labelText: 'Chemin local du fichier',
                                         border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.insert_drive_file_outlined),
+                                        prefixIcon: Icon(
+                                          Icons.insert_drive_file_outlined,
+                                        ),
                                         isDense: true,
                                       ),
                                     ),
@@ -1175,7 +1583,8 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                     onPressed: pickFile,
                                     icon: const Icon(Icons.attach_file),
                                     label: Text(
-                                      selectedScanName ?? 'Choisir le fichier scan',
+                                      selectedScanName ??
+                                          'Choisir le fichier scan',
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
@@ -1215,31 +1624,69 @@ class _DossiersScreenState extends State<DossiersScreen> {
                       const SizedBox(height: 8),
                       Expanded(
                         child: interchanges.isEmpty
-                            ? const Center(child: Text('Aucun interchange pour ce conteneur.'))
+                            ? const Center(
+                                child: Text(
+                                  'Aucun interchange pour ce conteneur.',
+                                ),
+                              )
                             : HorizontalTableScroller(
                                 child: SingleChildScrollView(
                                   child: DataTable(
-                                  headingRowColor: WidgetStateProperty.all(
-                                    const Color(0xFF1A237E).withValues(alpha: 0.08),
-                                  ),
-                                  columns: const [
-                                    DataColumn(label: Text('Actions')),
-                                    DataColumn(label: Text('Page')),
-                                    DataColumn(label: Text('Nom fichier')),
-                                  ],
-                                  rows: interchanges.map((ic) {
-                                    return DataRow(cells: [
-                                      DataCell(
-                                        IconButton(
-                                          icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                          tooltip: 'Supprimer',
-                                          onPressed: () => deleteInterchange(ic),
-                                        ),
-                                      ),
-                                      DataCell(Text(ic.page?.toString() ?? '-')),
-                                      DataCell(Text(ic.nomFichier ?? '-')),
-                                    ]);
-                                  }).toList(),
+                                    headingRowColor: WidgetStateProperty.all(
+                                      const Color(
+                                        0xFF1A237E,
+                                      ).withValues(alpha: 0.08),
+                                    ),
+                                    columns: const [
+                                      DataColumn(label: Text('Actions')),
+                                      DataColumn(label: Text('Page')),
+                                      DataColumn(label: Text('Nom fichier')),
+                                    ],
+                                    rows: interchanges.map((ic) {
+                                      return DataRow(
+                                        cells: [
+                                          DataCell(
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.visibility_outlined,
+                                                    color: Color(0xFF1A237E),
+                                                  ),
+                                                  tooltip: 'Visualiser',
+                                                  onPressed: () =>
+                                                      _viewLocalDocument(
+                                                        ic.nomFichier,
+                                                      ),
+                                                ),
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.delete_outline,
+                                                    color: Colors.red,
+                                                  ),
+                                                  tooltip: 'Supprimer',
+                                                  onPressed: () =>
+                                                      deleteInterchange(ic),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          DataCell(
+                                            Text(ic.page?.toString() ?? '-'),
+                                          ),
+                                          DataCell(
+                                            Text(
+                                              ic.nomFichier == null
+                                                  ? '-'
+                                                  : path.basename(
+                                                      ic.nomFichier!,
+                                                    ),
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    }).toList(),
                                   ),
                                 ),
                               ),
@@ -1266,10 +1713,87 @@ class _DossiersScreenState extends State<DossiersScreen> {
 
   // ── Scan BL dialog ────────────────────────────────────────────────────────
 
+  Future<void> _viewLocalDocument(String? filePath) async {
+    if (filePath == null ||
+        filePath.isEmpty ||
+        !await File(filePath).exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Le fichier est introuvable sur ce poste.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    final extension = path.extension(filePath).toLowerCase();
+    if (extension != '.pdf') {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => Dialog(
+          child: SizedBox(
+            width: 900,
+            height: 650,
+            child: Column(
+              children: [
+                ListTile(
+                  title: Text(path.basename(filePath)),
+                  trailing: IconButton(
+                    tooltip: 'Fermer',
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: InteractiveViewer(
+                    minScale: 0.5,
+                    maxScale: 5,
+                    child: Center(
+                      child: Image.file(
+                        File(filePath),
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, error, stackTrace) =>
+                            const Text('Impossible d’afficher cette image.'),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      if (Platform.isWindows) {
+        await Process.start('explorer.exe', [filePath]);
+      } else if (Platform.isMacOS) {
+        await Process.start('open', [filePath]);
+      } else if (Platform.isLinux) {
+        await Process.start('xdg-open', [filePath]);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Impossible d’ouvrir le PDF : $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _showScanBlDialog(Dossier dossier) async {
     final pageCtrl = TextEditingController();
     final nomFichierCtrl = TextEditingController();
-    Uint8List? selectedScanBytes;
+    String? selectedSourcePath;
     String? selectedScanName;
     var scans = await AppDatabase.instance.getScanBlByDossier(dossier.uuid);
     var isSaving = false;
@@ -1283,35 +1807,49 @@ class _DossiersScreenState extends State<DossiersScreen> {
             builder: (ctx, setDialogState) {
               Future<void> pickFile() async {
                 final result = await FilePicker.platform.pickFiles(
-                  type: FileType.any,
+                  type: FileType.custom,
+                  allowedExtensions: const [
+                    'pdf',
+                    'png',
+                    'jpg',
+                    'jpeg',
+                    'gif',
+                    'webp',
+                    'bmp',
+                  ],
                   allowMultiple: false,
-                  withData: true,
                 );
                 if (result != null && result.files.isNotEmpty) {
                   final file = result.files.first;
-                  if (file.bytes != null) {
-                    setDialogState(() {
-                      selectedScanBytes = file.bytes;
-                      selectedScanName = file.name;
-                      if (nomFichierCtrl.text.isEmpty) {
-                        nomFichierCtrl.text = file.name;
-                      }
-                    });
+                  if (file.path == null) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Chemin du fichier indisponible.'),
+                        ),
+                      );
+                    }
+                    return;
                   }
+                  final destinationPath = await AppDatabase.instance
+                      .buildScanBlFilePath(
+                        numeroBl: dossier.numeroBl ?? dossier.uuid,
+                        fileName: file.name,
+                      );
+                  setDialogState(() {
+                    selectedSourcePath = file.path;
+                    selectedScanName = file.name;
+                    nomFichierCtrl.text = destinationPath;
+                  });
                 }
               }
 
               Future<void> save() async {
-                if (selectedScanBytes == null) {
+                if (selectedSourcePath == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Veuillez choisir un fichier scan.')),
-                  );
-                  return;
-                }
-                final nomFichier = nomFichierCtrl.text.trim();
-                if (nomFichier.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Le nom de fichier est requis.')),
+                    const SnackBar(
+                      content: Text('Veuillez choisir un fichier scan.'),
+                    ),
                   );
                   return;
                 }
@@ -1319,31 +1857,41 @@ class _DossiersScreenState extends State<DossiersScreen> {
                 final page = pageText.isEmpty ? null : int.tryParse(pageText);
                 if (pageText.isNotEmpty && page == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Le numéro de page est invalide.')),
+                    const SnackBar(
+                      content: Text('Le numéro de page est invalide.'),
+                    ),
                   );
                   return;
                 }
                 setDialogState(() => isSaving = true);
                 try {
+                  final localPath = await AppDatabase.instance.storeScanBlFile(
+                    numeroBl: dossier.numeroBl ?? dossier.uuid,
+                    sourcePath: selectedSourcePath!,
+                  );
                   await AppDatabase.instance.createScanBl(
                     dossierUuid: dossier.uuid,
-                    scan: selectedScanBytes!,
-                    nomFichier: nomFichier,
+                    nomFichier: localPath,
                     page: page,
                   );
                   pageCtrl.clear();
                   nomFichierCtrl.clear();
-                  final items = await AppDatabase.instance.getScanBlByDossier(dossier.uuid);
+                  final items = await AppDatabase.instance.getScanBlByDossier(
+                    dossier.uuid,
+                  );
                   if (!mounted) return;
                   setDialogState(() {
-                    selectedScanBytes = null;
+                    selectedSourcePath = null;
                     selectedScanName = null;
                     scans = items;
                   });
                 } catch (e) {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+                      SnackBar(
+                        content: Text('Erreur : $e'),
+                        backgroundColor: Colors.red,
+                      ),
                     );
                   }
                 } finally {
@@ -1377,7 +1925,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
                 );
                 if (confirmed != true) return;
                 await AppDatabase.instance.deleteScanBl(scanItem.uuid);
-                final items = await AppDatabase.instance.getScanBlByDossier(dossier.uuid);
+                final items = await AppDatabase.instance.getScanBlByDossier(
+                  dossier.uuid,
+                );
                 if (!mounted) return;
                 setDialogState(() => scans = items);
               }
@@ -1424,10 +1974,13 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                     flex: 2,
                                     child: TextField(
                                       controller: nomFichierCtrl,
+                                      readOnly: true,
                                       decoration: const InputDecoration(
-                                        labelText: 'Nom fichier',
+                                        labelText: 'Chemin local du fichier',
                                         border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.insert_drive_file_outlined),
+                                        prefixIcon: Icon(
+                                          Icons.insert_drive_file_outlined,
+                                        ),
                                         isDense: true,
                                       ),
                                     ),
@@ -1441,7 +1994,8 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                     onPressed: pickFile,
                                     icon: const Icon(Icons.attach_file),
                                     label: Text(
-                                      selectedScanName ?? 'Choisir le fichier scan',
+                                      selectedScanName ??
+                                          'Choisir le fichier scan',
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
@@ -1481,31 +2035,67 @@ class _DossiersScreenState extends State<DossiersScreen> {
                       const SizedBox(height: 8),
                       Expanded(
                         child: scans.isEmpty
-                            ? const Center(child: Text('Aucun scan BL pour ce dossier.'))
+                            ? const Center(
+                                child: Text('Aucun scan BL pour ce dossier.'),
+                              )
                             : HorizontalTableScroller(
                                 child: SingleChildScrollView(
                                   child: DataTable(
-                                  headingRowColor: WidgetStateProperty.all(
-                                    const Color(0xFF1A237E).withValues(alpha: 0.08),
-                                  ),
-                                  columns: const [
-                                    DataColumn(label: Text('Actions')),
-                                    DataColumn(label: Text('Page')),
-                                    DataColumn(label: Text('Nom fichier')),
-                                  ],
-                                  rows: scans.map((s) {
-                                    return DataRow(cells: [
-                                      DataCell(
-                                        IconButton(
-                                          icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                          tooltip: 'Supprimer',
-                                          onPressed: () => deleteScan(s),
-                                        ),
-                                      ),
-                                      DataCell(Text(s.page?.toString() ?? '-')),
-                                      DataCell(Text(s.nomFichier ?? '-')),
-                                    ]);
-                                  }).toList(),
+                                    headingRowColor: WidgetStateProperty.all(
+                                      const Color(
+                                        0xFF1A237E,
+                                      ).withValues(alpha: 0.08),
+                                    ),
+                                    columns: const [
+                                      DataColumn(label: Text('Actions')),
+                                      DataColumn(label: Text('Page')),
+                                      DataColumn(label: Text('Nom fichier')),
+                                    ],
+                                    rows: scans.map((s) {
+                                      return DataRow(
+                                        cells: [
+                                          DataCell(
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.visibility_outlined,
+                                                    color: Color(0xFF1A237E),
+                                                  ),
+                                                  tooltip: 'Visualiser',
+                                                  onPressed: () =>
+                                                      _viewLocalDocument(
+                                                        s.nomFichier,
+                                                      ),
+                                                ),
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.delete_outline,
+                                                    color: Colors.red,
+                                                  ),
+                                                  tooltip: 'Supprimer',
+                                                  onPressed: () =>
+                                                      deleteScan(s),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          DataCell(
+                                            Text(s.page?.toString() ?? '-'),
+                                          ),
+                                          DataCell(
+                                            Text(
+                                              s.nomFichier == null
+                                                  ? '-'
+                                                  : path.basename(
+                                                      s.nomFichier!,
+                                                    ),
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    }).toList(),
                                   ),
                                 ),
                               ),
@@ -1552,6 +2142,42 @@ class _DossiersScreenState extends State<DossiersScreen> {
 
   // ── Form ──────────────────────────────────────────────────────────────────
   Widget _buildForm() {
+    final header = InkWell(
+      onTap: () => setState(() => _isFormExpanded = !_isFormExpanded),
+      child: Row(
+        children: [
+          Icon(
+            _editingDossier != null
+                ? Icons.edit_outlined
+                : Icons.add_circle_outline,
+            color: const Color(0xFF1A237E),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _editingDossier != null
+                  ? 'Modifier un dossier'
+                  : 'Ajouter un dossier',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1A237E),
+              ),
+            ),
+          ),
+          Icon(
+            _isFormExpanded ? Icons.expand_less : Icons.expand_more,
+            color: const Color(0xFF1A237E),
+          ),
+        ],
+      ),
+    );
+    if (!_isFormExpanded) {
+      return Card(
+        elevation: 2,
+        child: Padding(padding: const EdgeInsets.all(20), child: header),
+      );
+    }
     return Card(
       elevation: 2,
       child: Padding(
@@ -1562,19 +2188,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  Icon(
-                    _editingDossier != null ? Icons.edit_outlined : Icons.add_circle_outline,
-                    color: const Color(0xFF1A237E),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _editingDossier != null ? 'Modifier un dossier' : 'Ajouter un dossier',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
-                  ),
-                ],
-              ),
+              header,
               const Divider(height: 20),
               // Ligne 1 : N° BL | Client | Statut
               Row(
@@ -1587,7 +2201,9 @@ class _DossiersScreenState extends State<DossiersScreen> {
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.tag),
                       ),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Champ requis' : null,
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Champ requis'
+                          : null,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -1600,8 +2216,16 @@ class _DossiersScreenState extends State<DossiersScreen> {
                         prefixIcon: Icon(Icons.person_outline),
                       ),
                       items: [
-                        const DropdownMenuItem(value: null, child: Text('— Aucun —')),
-                        ..._clients.map((c) => DropdownMenuItem(value: c.uuid, child: Text(c.nom))),
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('— Aucun —'),
+                        ),
+                        ..._clients.map(
+                          (c) => DropdownMenuItem(
+                            value: c.uuid,
+                            child: Text(c.nom),
+                          ),
+                        ),
                       ],
                       onChanged: (v) => setState(() => _selectedClientUuid = v),
                     ),
@@ -1616,11 +2240,19 @@ class _DossiersScreenState extends State<DossiersScreen> {
                         prefixIcon: Icon(Icons.info_outline),
                       ),
                       items: [
-                        const DropdownMenuItem(value: null, child: Text('— Aucun —')),
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('— Aucun —'),
+                        ),
                         ..._kStatuts
-                            .where((s) => !_isOpLogistique ||
-                                (s != 'Clôturé' && s != 'Annulé'))
-                            .map((s) => DropdownMenuItem(value: s, child: Text(s))),
+                            .where(
+                              (s) =>
+                                  !_isOpLogistique ||
+                                  (s != 'Clôturé' && s != 'Annulé'),
+                            )
+                            .map(
+                              (s) => DropdownMenuItem(value: s, child: Text(s)),
+                            ),
                       ],
                       onChanged: (v) => setState(() => _selectedStatut = v),
                     ),
@@ -1635,8 +2267,13 @@ class _DossiersScreenState extends State<DossiersScreen> {
                         prefixIcon: Icon(Icons.description_outlined),
                       ),
                       items: [
-                        const DropdownMenuItem(value: null, child: Text('— Aucun —')),
-                        ..._kTypesBl.map((t) => DropdownMenuItem(value: t, child: Text(t))),
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('— Aucun —'),
+                        ),
+                        ..._kTypesBl.map(
+                          (t) => DropdownMenuItem(value: t, child: Text(t)),
+                        ),
                       ],
                       onChanged: (v) => setState(() => _selectedTypeBl = v),
                     ),
@@ -1682,14 +2319,22 @@ class _DossiersScreenState extends State<DossiersScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              // Ligne 3 : Arrée PN | Arrée Matadi | Montant convenu
+              // Ligne 3 : Réception BL | Arrivée PN | Arrivée Matadi | Montant convenu
               Row(
                 children: [
+                  Expanded(
+                    child: _dateField(
+                      'Date réception BL',
+                      _dateReceptionBlCtrl,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(child: _dateField('Arrivée PN', _dateArriveePnCtrl)),
                   const SizedBox(width: 12),
-                  Expanded(child: _dateField('Arrivée Matadi', _dateArriveeMatadictrl)),
-                  if (!_isOpLogistique) ...
-                  [
+                  Expanded(
+                    child: _dateField('Arrivée Matadi', _dateArriveeMatadictrl),
+                  ),
+                  if (!_isOpLogistique) ...[
                     const SizedBox(width: 12),
                     Expanded(
                       child: TextFormField(
@@ -1699,10 +2344,17 @@ class _DossiersScreenState extends State<DossiersScreen> {
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.attach_money),
                         ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         validator: (v) {
-                          if (v == null || v.trim().isEmpty) return null;
-                          if (double.tryParse(v.trim().replaceAll(',', '.')) == null) return 'Nombre invalide';
+                          if (v == null || v.trim().isEmpty) {
+                            return null;
+                          }
+                          if (double.tryParse(v.trim().replaceAll(',', '.')) ==
+                              null) {
+                            return 'Nombre invalide';
+                          }
                           return null;
                         },
                       ),
@@ -1710,17 +2362,31 @@ class _DossiersScreenState extends State<DossiersScreen> {
                   ],
                 ],
               ),
-              if (!_isOpLogistique) ...
-              [
+              if (!_isOpLogistique) ...[
                 const SizedBox(height: 12),
                 // Ligne 4 : Paiement 30% Draft | Paiement 30% PN | Paiement 40% Matadi
                 Row(
                   children: [
-                    Expanded(child: _dateField('Paiement 30% Draft', _datePaiement30DraftCtrl)),
+                    Expanded(
+                      child: _dateField(
+                        'Paiement 30% Draft',
+                        _datePaiement30DraftCtrl,
+                      ),
+                    ),
                     const SizedBox(width: 12),
-                    Expanded(child: _dateField('Paiement 30% PN', _datePaiement30PnCtrl)),
+                    Expanded(
+                      child: _dateField(
+                        'Paiement 30% PN',
+                        _datePaiement30PnCtrl,
+                      ),
+                    ),
                     const SizedBox(width: 12),
-                    Expanded(child: _dateField('Paiement 40% Matadi', _datePaiement40MatadictrlCtrl)),
+                    Expanded(
+                      child: _dateField(
+                        'Paiement 40% Matadi',
+                        _datePaiement40MatadictrlCtrl,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -1732,16 +2398,28 @@ class _DossiersScreenState extends State<DossiersScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1A237E),
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 14,
+                        horizontal: 24,
+                      ),
                     ),
                     icon: _isSaving
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
                           )
-                        : Icon(_editingDossier != null ? Icons.save_outlined : Icons.add),
-                    label: Text(_editingDossier != null ? 'Modifier' : 'Ajouter'),
+                        : Icon(
+                            _editingDossier != null
+                                ? Icons.save_outlined
+                                : Icons.add,
+                          ),
+                    label: Text(
+                      _editingDossier != null ? 'Modifier' : 'Ajouter',
+                    ),
                   ),
                   if (_editingDossier != null) ...[
                     const SizedBox(width: 8),
@@ -1772,6 +2450,35 @@ class _DossiersScreenState extends State<DossiersScreen> {
   }
 
   Widget _buildList() {
+    final header = InkWell(
+      onTap: () => setState(() => _isListExpanded = !_isListExpanded),
+      child: Row(
+        children: [
+          const Icon(Icons.folder_outlined, color: Color(0xFF1A237E)),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Liste des dossiers',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1A237E),
+              ),
+            ),
+          ),
+          Icon(
+            _isListExpanded ? Icons.expand_less : Icons.expand_more,
+            color: const Color(0xFF1A237E),
+          ),
+        ],
+      ),
+    );
+    if (!_isListExpanded) {
+      return Card(
+        elevation: 2,
+        child: Padding(padding: const EdgeInsets.all(16), child: header),
+      );
+    }
     return Card(
       elevation: 2,
       child: Padding(
@@ -1779,16 +2486,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
-              children: [
-                Icon(Icons.folder_outlined, color: Color(0xFF1A237E)),
-                SizedBox(width: 8),
-                Text(
-                  'Liste des dossiers',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
-                ),
-              ],
-            ),
+            header,
             const Divider(height: 24),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1803,7 +2501,8 @@ class _DossiersScreenState extends State<DossiersScreen> {
                       suffixIcon: _searchCtrl.text.isNotEmpty
                           ? IconButton(
                               icon: const Icon(Icons.clear),
-                              onPressed: () => setState(() => _searchCtrl.clear()),
+                              onPressed: () =>
+                                  setState(() => _searchCtrl.clear()),
                             )
                           : null,
                       border: const OutlineInputBorder(),
@@ -1823,7 +2522,8 @@ class _DossiersScreenState extends State<DossiersScreen> {
                       return ChoiceChip(
                         label: Text(label),
                         selected: selected,
-                        onSelected: (_) => setState(() => _selectedStatusFilter = label),
+                        onSelected: (_) =>
+                            setState(() => _selectedStatusFilter = label),
                       );
                     }).toList(),
                   ),
@@ -1834,146 +2534,180 @@ class _DossiersScreenState extends State<DossiersScreen> {
             if (_isLoading)
               const Expanded(child: Center(child: CircularProgressIndicator()))
             else if (_filteredDossiers.isEmpty)
-              const Expanded(child: Center(child: Text('Aucun dossier trouvé.')))
+              const Expanded(
+                child: Center(child: Text('Aucun dossier trouvé.')),
+              )
             else
               Expanded(
                 child: HorizontalTableScroller(
                   controller: _hScrollCtrl,
                   child: SingleChildScrollView(
-                      child: DataTable(
-                        headingRowColor: WidgetStateProperty.all(
-                          const Color(0xFF1A237E).withValues(alpha: 0.08),
-                        ),
-                        columnSpacing: 20,
-                        columns: [
-                          const DataColumn(label: Text('Actions')),
-                          const DataColumn(label: Text('N° BL')),
-                          const DataColumn(label: Text('Client')),
-                          const DataColumn(label: Text('Port charg.')),
-                          const DataColumn(label: Text('Port dest.')),
-                          const DataColumn(label: Text('Nbre conteneur')),
-                          const DataColumn(label: Text('Statut')),
-                          const DataColumn(label: Text('Marchandise')),
-                          const DataColumn(label: Text('Arr. PN')),
-                          const DataColumn(label: Text('Arr. Matadi')),
-                          if (!_isOpLogistique) ...
-                          [
-                            const DataColumn(label: Text('Paiem. 30% Draft')),
-                            const DataColumn(label: Text('Paiem. 30% PN')),
-                            const DataColumn(label: Text('Paiem. 40% Matadi')),
-                            const DataColumn(label: Text('Montant')),
-                          ],
+                    child: DataTable(
+                      headingRowColor: WidgetStateProperty.all(
+                        const Color(0xFF1A237E).withValues(alpha: 0.08),
+                      ),
+                      columnSpacing: 20,
+                      columns: [
+                        const DataColumn(label: Text('Actions')),
+                        const DataColumn(label: Text('N° BL')),
+                        const DataColumn(label: Text('Client')),
+                        const DataColumn(label: Text('Port charg.')),
+                        const DataColumn(label: Text('Port dest.')),
+                        const DataColumn(label: Text('Nbre conteneur')),
+                        const DataColumn(label: Text('Statut')),
+                        const DataColumn(label: Text('Marchandise')),
+                        const DataColumn(label: Text('Réception BL')),
+                        const DataColumn(label: Text('Arr. PN')),
+                        const DataColumn(label: Text('Arr. Matadi')),
+                        if (!_isOpLogistique) ...[
+                          const DataColumn(label: Text('Paiem. 30% Draft')),
+                          const DataColumn(label: Text('Paiem. 30% PN')),
+                          const DataColumn(label: Text('Paiem. 40% Matadi')),
+                          const DataColumn(label: Text('Montant')),
                         ],
-                        rows: _filteredDossiers.map((d) {
-                          final isEditing = _editingDossier?.uuid == d.uuid;
-                          DataCell detailCell(Widget child) => DataCell(
-                                child,
-                                onDoubleTap: () => _showDossierDetails(d),
-                              );
-                          return DataRow(
-                            color: WidgetStateProperty.resolveWith(
-                              (s) => isEditing ? const Color(0xFF1A237E).withValues(alpha: 0.06) : null,
+                      ],
+                      rows: _filteredDossiers.map((d) {
+                        final isEditing = _editingDossier?.uuid == d.uuid;
+                        DataCell detailCell(Widget child) => DataCell(
+                          child,
+                          onDoubleTap: () => _showDossierDetails(d),
+                        );
+                        return DataRow(
+                          color: WidgetStateProperty.resolveWith(
+                            (s) => isEditing
+                                ? const Color(
+                                    0xFF1A237E,
+                                  ).withValues(alpha: 0.06)
+                                : null,
+                          ),
+                          cells: [
+                            DataCell(
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.inventory_2_outlined,
+                                      color: Color(0xFF1565C0),
+                                    ),
+                                    tooltip: 'Gérer les conteneurs',
+                                    onPressed: () => _showConteneursDialog(d),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.document_scanner_outlined,
+                                      color: Color(0xFF1B5E20),
+                                    ),
+                                    tooltip: 'Scans BL',
+                                    onPressed: () => _showScanBlDialog(d),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.edit_outlined,
+                                      color: Color(0xFF1A237E),
+                                    ),
+                                    tooltip: 'Modifier',
+                                    onPressed: () => _startEdit(d),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
+                                    tooltip: 'Supprimer',
+                                    onPressed: () => _confirmDelete(d),
+                                  ),
+                                ],
+                              ),
                             ),
-                            cells: [
-                              DataCell(
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.inventory_2_outlined,
-                                        color: Color(0xFF1565C0),
+                            detailCell(Text(d.numeroBl ?? '-')),
+                            detailCell(Text(_clientLabel(d.clientUuid))),
+                            detailCell(Text(d.portChargement ?? '-')),
+                            detailCell(Text(d.portDestination ?? '-')),
+                            detailCell(
+                              Text(_conteneurCount(d.uuid).toString()),
+                            ),
+                            detailCell(
+                              d.statut != null
+                                  ? Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
                                       ),
-                                      tooltip: 'Gérer les conteneurs',
-                                      onPressed: () => _showConteneursDialog(d),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.document_scanner_outlined,
-                                        color: Color(0xFF1B5E20),
+                                      decoration: BoxDecoration(
+                                        color: _statutColor(
+                                          d.statut,
+                                        ).withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: _statutColor(
+                                            d.statut,
+                                          ).withValues(alpha: 0.4),
+                                        ),
                                       ),
-                                      tooltip: 'Scans BL',
-                                      onPressed: () => _showScanBlDialog(d),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.edit_outlined, color: Color(0xFF1A237E)),
-                                      tooltip: 'Modifier',
-                                      onPressed: () => _startEdit(d),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                      tooltip: 'Supprimer',
-                                      onPressed: () => _confirmDelete(d),
-                                    ),
-                                  ],
+                                      child: Text(
+                                        d.statut!,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: _statutColor(d.statut),
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    )
+                                  : const Text('-'),
+                            ),
+                            detailCell(Text(d.natureMarchandise ?? '-')),
+                            detailCell(Text(_formatDate(d.dateReceptionBl))),
+                            detailCell(Text(_formatDate(d.dateArriveePn))),
+                            detailCell(Text(_formatDate(d.dateArriveeMatadi))),
+                            if (!_isOpLogistique) ...[
+                              detailCell(
+                                Text(_formatDate(d.datePaiement30Draft)),
+                              ),
+                              detailCell(Text(_formatDate(d.datePaiement30Pn))),
+                              detailCell(
+                                Text(_formatDate(d.datePaiement40Matadi)),
+                              ),
+                              detailCell(
+                                Builder(
+                                  builder: (context) {
+                                    final total = _depensesTotals[d.uuid];
+                                    final overrun =
+                                        total != null &&
+                                        d.montantConvenu != null &&
+                                        total > d.montantConvenu!;
+                                    return Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          d.montantConvenu != null
+                                              ? d.montantConvenu!
+                                                    .toStringAsFixed(2)
+                                              : '-',
+                                        ),
+                                        if (overrun) ...[
+                                          const SizedBox(width: 4),
+                                          Tooltip(
+                                            message:
+                                                'Dépenses (${total.toStringAsFixed(2)}) dépassent le montant convenu',
+                                            child: const Icon(
+                                              Icons.warning_amber_rounded,
+                                              color: Colors.orange,
+                                              size: 18,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    );
+                                  },
                                 ),
                               ),
-                              detailCell(Text(d.numeroBl ?? '-')),
-                              detailCell(Text(_clientLabel(d.clientUuid))),
-                              detailCell(Text(d.portChargement ?? '-')),
-                              detailCell(Text(d.portDestination ?? '-')),
-                              detailCell(Text(_conteneurCount(d.uuid).toString())),
-                              detailCell(
-                                d.statut != null
-                                    ? Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: _statutColor(d.statut).withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: _statutColor(d.statut).withValues(alpha: 0.4)),
-                                        ),
-                                        child: Text(
-                                          d.statut!,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: _statutColor(d.statut),
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      )
-                                    : const Text('-'),
-                              ),
-                              detailCell(Text(d.natureMarchandise ?? '-')),
-                              detailCell(Text(_formatDate(d.dateArriveePn))),
-                              detailCell(Text(_formatDate(d.dateArriveeMatadi))),
-                              if (!_isOpLogistique) ...
-                              [
-                                detailCell(Text(_formatDate(d.datePaiement30Draft))),
-                                detailCell(Text(_formatDate(d.datePaiement30Pn))),
-                                detailCell(Text(_formatDate(d.datePaiement40Matadi))),
-                                detailCell(Builder(builder: (context) {
-                                  final total = _depensesTotals[d.uuid];
-                                  final overrun = total != null &&
-                                      d.montantConvenu != null &&
-                                      total > d.montantConvenu!;
-                                  return Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        d.montantConvenu != null
-                                            ? d.montantConvenu!.toStringAsFixed(2)
-                                            : '-',
-                                      ),
-                                      if (overrun) ...[
-                                        const SizedBox(width: 4),
-                                        Tooltip(
-                                          message: 'Dépenses (${total.toStringAsFixed(2)}) dépassent le montant convenu',
-                                          child: const Icon(
-                                            Icons.warning_amber_rounded,
-                                            color: Colors.orange,
-                                            size: 18,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  );
-                                })),
-                              ],
                             ],
-                          );
-                        }).toList(),
-                      ),
+                          ],
+                        );
+                      }).toList(),
                     ),
+                  ),
                 ),
               ),
           ],
@@ -1991,7 +2725,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
         children: [
           _buildForm(),
           const SizedBox(height: 16),
-          Expanded(child: _buildList()),
+          if (_isListExpanded) Expanded(child: _buildList()) else _buildList(),
         ],
       ),
     );

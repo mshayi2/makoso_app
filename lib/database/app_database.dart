@@ -49,6 +49,11 @@ class AppDatabase {
     'scan_voyage',
     'solde',
   ];
+  static const Set<String> _managedDocumentTables = {
+    'scan_bl',
+    'interchange',
+    'scan_voyage',
+  };
 
   sqflite.Database? _database;
   final Map<String, Set<String>> _tableColumnsCache = {};
@@ -101,6 +106,244 @@ class AppDatabase {
   Future<String> _databasePath() async {
     final directory = await getApplicationSupportDirectory();
     return path.join(directory.path, 'makoso.db');
+  }
+
+  String _safePathSegment(String value) {
+    final sanitized = value
+        .trim()
+        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+        .replaceAll(RegExp(r'[. ]+$'), '');
+    return sanitized.isEmpty ? 'sans_numero' : sanitized;
+  }
+
+  Future<String> buildScanBlFilePath({
+    required String numeroBl,
+    required String fileName,
+  }) async {
+    return buildManagedDocumentPath(
+      folder: 'scan_bl',
+      ownerLabel: numeroBl,
+      fileName: fileName,
+    );
+  }
+
+  Future<String> buildManagedDocumentPath({
+    required String folder,
+    required String ownerLabel,
+    required String fileName,
+  }) async {
+    final databaseFilePath = await _databasePath();
+    return path.join(
+      path.dirname(databaseFilePath),
+      folder,
+      _safePathSegment(ownerLabel),
+      path.basename(fileName),
+    );
+  }
+
+  Future<String> storeScanBlFile({
+    required String numeroBl,
+    required String sourcePath,
+  }) async {
+    return storeManagedDocument(
+      folder: 'scan_bl',
+      ownerLabel: numeroBl,
+      sourcePath: sourcePath,
+    );
+  }
+
+  Future<String> storeManagedDocument({
+    required String folder,
+    required String ownerLabel,
+    required String sourcePath,
+  }) async {
+    final extension = path.extension(sourcePath).toLowerCase();
+    const allowedExtensions = {
+      '.pdf',
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.gif',
+      '.webp',
+      '.bmp',
+    };
+    if (!allowedExtensions.contains(extension)) {
+      throw const FormatException('Le fichier doit être une image ou un PDF.');
+    }
+
+    final destinationPath = await buildManagedDocumentPath(
+      folder: folder,
+      ownerLabel: ownerLabel,
+      fileName: path.basename(sourcePath),
+    );
+    final destinationDirectory = Directory(path.dirname(destinationPath));
+    await destinationDirectory.create(recursive: true);
+
+    final sourceFile = File(sourcePath);
+    if (!await sourceFile.exists()) {
+      throw const FileSystemException(
+        'Le fichier sélectionné est introuvable.',
+      );
+    }
+    if (path.normalize(sourcePath) != path.normalize(destinationPath)) {
+      await sourceFile.copy(destinationPath);
+    }
+    return destinationPath;
+  }
+
+  Future<void> preparePulledScanBlRecord(Map<String, dynamic> record) async {
+    await preparePulledManagedDocument(
+      record: record,
+      folder: 'scan_bl',
+      ownerTable: 'dossiers',
+      ownerUuidColumn: 'dossier_uuid',
+      ownerLabelColumn: 'numero_bl',
+    );
+  }
+
+  Future<void> preparePulledInterchangeRecord(
+    Map<String, dynamic> record,
+  ) async {
+    await preparePulledManagedDocument(
+      record: record,
+      folder: 'interchange',
+      ownerTable: 'conteneurs',
+      ownerUuidColumn: 'conteneur_uuid',
+      ownerLabelColumn: 'numero_conteneur',
+    );
+  }
+
+  Future<void> preparePulledScanVoyageRecord(
+    Map<String, dynamic> record,
+  ) async {
+    await preparePulledManagedDocument(
+      record: record,
+      folder: 'scan_voyage',
+      ownerTable: 'voyages',
+      ownerUuidColumn: 'voyage_uuid',
+      ownerLabelColumn: 'numero_voyage',
+    );
+  }
+
+  Future<void> preparePulledManagedDocument({
+    required Map<String, dynamic> record,
+    required String folder,
+    required String ownerTable,
+    required String ownerUuidColumn,
+    required String ownerLabelColumn,
+  }) async {
+    final fileName = path.basename(record['nom_fichier']?.toString() ?? '');
+    final ownerUuid = record[ownerUuidColumn]?.toString() ?? '';
+    if (fileName.isEmpty || ownerUuid.isEmpty) {
+      record['scan'] = null;
+      return;
+    }
+
+    final db = await initialize();
+    final owners = await db.query(
+      ownerTable,
+      columns: [ownerLabelColumn],
+      where: 'uuid = ?',
+      whereArgs: [ownerUuid],
+      limit: 1,
+    );
+    final ownerLabel = owners.isEmpty
+        ? ownerUuid
+        : owners.first[ownerLabelColumn]?.toString() ?? ownerUuid;
+    final localPath = await buildManagedDocumentPath(
+      folder: folder,
+      ownerLabel: ownerLabel,
+      fileName: fileName,
+    );
+
+    final scanValue = record['scan'];
+    Uint8List? bytes;
+    if (scanValue is Uint8List) {
+      bytes = scanValue;
+    } else if (scanValue is List) {
+      bytes = Uint8List.fromList(List<int>.from(scanValue));
+    }
+    if (bytes != null && bytes.isNotEmpty) {
+      await Directory(path.dirname(localPath)).create(recursive: true);
+      await File(localPath).writeAsBytes(bytes, flush: true);
+    }
+
+    record['nom_fichier'] = localPath;
+    record['scan'] = null;
+  }
+
+  Future<List<Map<String, Object?>>> _getManagedDocuments({
+    required String table,
+    required String ownerTable,
+    required String ownerUuidColumn,
+    required String ownerLabelColumn,
+    required String ownerUuid,
+    required String folder,
+  }) async {
+    final db = await initialize();
+    final rows = await db.rawQuery(
+      '''
+      SELECT document.*, owner."$ownerLabelColumn" AS owner_label
+      FROM "$table" document
+      LEFT JOIN "$ownerTable" owner
+        ON owner.uuid = document."$ownerUuidColumn"
+      WHERE document.id > 0 AND document."$ownerUuidColumn" = ?
+      ORDER BY document.page ASC
+      ''',
+      [ownerUuid],
+    );
+    final migratedRows = <Map<String, Object?>>[];
+    for (final rawRow in rows) {
+      final row = Map<String, Object?>.from(rawRow)..remove('owner_label');
+      final currentName = row['nom_fichier']?.toString() ?? '';
+      if (currentName.isEmpty) {
+        migratedRows.add(row);
+        continue;
+      }
+
+      final localPath = await buildManagedDocumentPath(
+        folder: folder,
+        ownerLabel: rawRow['owner_label']?.toString() ?? ownerUuid,
+        fileName: path.basename(currentName),
+      );
+      final scanValue = row['scan'];
+      Uint8List? bytes;
+      if (scanValue is Uint8List) {
+        bytes = scanValue;
+      } else if (scanValue is List) {
+        bytes = Uint8List.fromList(List<int>.from(scanValue));
+      }
+      if (bytes != null &&
+          bytes.isNotEmpty &&
+          !await File(localPath).exists()) {
+        await Directory(path.dirname(localPath)).create(recursive: true);
+        await File(localPath).writeAsBytes(bytes, flush: true);
+      }
+      if (currentName != localPath || scanValue != null) {
+        await db.update(
+          table,
+          {'nom_fichier': localPath, 'scan': null},
+          where: 'uuid = ?',
+          whereArgs: [row['uuid']],
+        );
+        row['nom_fichier'] = localPath;
+        row['scan'] = null;
+      }
+      migratedRows.add(row);
+    }
+    return migratedRows;
+  }
+
+  Future<void> _deleteManagedDocument(String table, String uuid) async {
+    final record = await getRawRecordByUuid(table, uuid);
+    await smartDelete(table, where: 'uuid = ?', whereArgs: [uuid]);
+    final filePath = record?['nom_fichier']?.toString();
+    if (filePath != null && filePath.isNotEmpty) {
+      final file = File(filePath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
   }
 
   Future<void> _onCreate(sqflite.Database db, int version) async {
@@ -172,6 +415,7 @@ class AppDatabase {
         port_chargement TEXT,
         port_destination TEXT,
         nature_marchandise TEXT,
+        date_reception_bl DATE,
         date_arrivee_pn DATE,
         date_arrivee_matadi DATE,
         date_paiement_30_draft DATE,
@@ -184,6 +428,7 @@ class AppDatabase {
       )
     ''');
     await _ensureColumn(db, 'dossiers', 'type_bl', 'TEXT');
+    await _ensureColumn(db, 'dossiers', 'date_reception_bl', 'DATE');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS conteneurs (
@@ -193,6 +438,8 @@ class AppDatabase {
         dossier_uuid TEXT,
         numero_conteneur TEXT,
         dimension TEXT,
+        poids FLOAT,
+        nature_marchandise TEXT,
         date_sorti_port DATE,
         nom_transporteur TEXT,
         marque_camion TEXT,
@@ -208,6 +455,8 @@ class AppDatabase {
     ''');
 
     await _ensureColumn(db, 'conteneurs', 'dimension', 'TEXT');
+    await _ensureColumn(db, 'conteneurs', 'poids', 'FLOAT');
+    await _ensureColumn(db, 'conteneurs', 'nature_marchandise', 'TEXT');
     await _ensureColumn(db, 'conteneurs', 'date_sorti_port', 'DATE');
     await _ensureColumn(db, 'conteneurs', 'nom_transporteur', 'TEXT');
     await _ensureColumn(db, 'conteneurs', 'marque_camion', 'TEXT');
@@ -381,6 +630,16 @@ class AppDatabase {
         date_voyage TEXT,
         lieu_depart TEXT,
         lieu_destination TEXT,
+        dimension_conteneur TEXT,
+        poids_conteneur FLOAT,
+        nature_marchandise TEXT,
+        date_depart_origine DATE,
+        date_arriver_destination DATE,
+        date_depart_retour DATE,
+        date_arriver_retour DATE,
+        nature_marchandise_retour TEXT,
+        nom_client_retour TEXT,
+        montant_convenu_retour FLOAT,
         montant_convenu REAL,
         monnaie_uuid TEXT,
         statut TEXT,
@@ -393,6 +652,16 @@ class AppDatabase {
     ''');
     await _ensureColumn(db, 'voyages', 'client_uuid', 'TEXT');
     await _ensureColumn(db, 'voyages', 'valide', 'INTEGER DEFAULT 0');
+    await _ensureColumn(db, 'voyages', 'dimension_conteneur', 'TEXT');
+    await _ensureColumn(db, 'voyages', 'poids_conteneur', 'FLOAT');
+    await _ensureColumn(db, 'voyages', 'nature_marchandise', 'TEXT');
+    await _ensureColumn(db, 'voyages', 'date_depart_origine', 'DATE');
+    await _ensureColumn(db, 'voyages', 'date_arriver_destination', 'DATE');
+    await _ensureColumn(db, 'voyages', 'date_depart_retour', 'DATE');
+    await _ensureColumn(db, 'voyages', 'date_arriver_retour', 'DATE');
+    await _ensureColumn(db, 'voyages', 'nature_marchandise_retour', 'TEXT');
+    await _ensureColumn(db, 'voyages', 'nom_client_retour', 'TEXT');
+    await _ensureColumn(db, 'voyages', 'montant_convenu_retour', 'FLOAT');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS scan_voyage (
@@ -620,11 +889,30 @@ class AppDatabase {
       whereArgs.add(uuid);
     }
 
-    return db.delete(
+    String? managedFilePath;
+    if (_managedDocumentTables.contains(table)) {
+      final rows = await db.query(
+        table,
+        columns: ['nom_fichier'],
+        where: whereParts.join(' AND '),
+        whereArgs: whereArgs,
+        limit: 1,
+      );
+      managedFilePath = rows.firstOrNull?['nom_fichier']?.toString();
+    }
+
+    final deleted = await db.delete(
       table,
       where: whereParts.join(' AND '),
       whereArgs: whereArgs,
     );
+    if (deleted > 0 && managedFilePath != null && managedFilePath.isNotEmpty) {
+      final file = File(managedFilePath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
+    return deleted;
   }
 
   Future<int> updateSyncValueIfUnchanged(
@@ -655,7 +943,29 @@ class AppDatabase {
 
   Future<int> hardDeleteByUuid(String table, String uuid) async {
     final db = await initialize();
-    return db.delete(table, where: 'uuid = ?', whereArgs: [uuid]);
+    String? managedFilePath;
+    if (_managedDocumentTables.contains(table)) {
+      final rows = await db.query(
+        table,
+        columns: ['nom_fichier'],
+        where: 'uuid = ?',
+        whereArgs: [uuid],
+        limit: 1,
+      );
+      managedFilePath = rows.firstOrNull?['nom_fichier']?.toString();
+    }
+    final deleted = await db.delete(
+      table,
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
+    if (deleted > 0 && managedFilePath != null && managedFilePath.isNotEmpty) {
+      final file = File(managedFilePath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
+    return deleted;
   }
 
   Future<Map<String, Object?>?> getRawRecordByUuid(
@@ -1021,6 +1331,7 @@ class AppDatabase {
     String? portChargement,
     String? portDestination,
     String? natureMarchandise,
+    String? dateReceptionBl,
     String? dateArriveePn,
     String? dateArriveeMatadi,
     String? datePaiement30Draft,
@@ -1037,6 +1348,7 @@ class AppDatabase {
       'port_chargement': portChargement,
       'port_destination': portDestination,
       'nature_marchandise': natureMarchandise,
+      'date_reception_bl': dateReceptionBl,
       'date_arrivee_pn': dateArriveePn,
       'date_arrivee_matadi': dateArriveeMatadi,
       'date_paiement_30_draft': datePaiement30Draft,
@@ -1055,6 +1367,7 @@ class AppDatabase {
     String? portChargement,
     String? portDestination,
     String? natureMarchandise,
+    String? dateReceptionBl,
     String? dateArriveePn,
     String? dateArriveeMatadi,
     String? datePaiement30Draft,
@@ -1072,6 +1385,7 @@ class AppDatabase {
         'port_chargement': portChargement,
         'port_destination': portDestination,
         'nature_marchandise': natureMarchandise,
+        'date_reception_bl': dateReceptionBl,
         'date_arrivee_pn': dateArriveePn,
         'date_arrivee_matadi': dateArriveeMatadi,
         'date_paiement_30_draft': datePaiement30Draft,
@@ -1153,6 +1467,8 @@ class AppDatabase {
     required String dossierUuid,
     required String numeroConteneur,
     String? dimension,
+    double? poids,
+    String? natureMarchandise,
     String? dateSortiPort,
     String? nomTransporteur,
     String? marqueCamion,
@@ -1170,6 +1486,8 @@ class AppDatabase {
       'dossier_uuid': dossierUuid,
       'numero_conteneur': numeroConteneur,
       'dimension': dimension,
+      'poids': poids,
+      'nature_marchandise': natureMarchandise,
       'date_sorti_port': dateSortiPort,
       'nom_transporteur': nomTransporteur,
       'marque_camion': marqueCamion,
@@ -1189,6 +1507,8 @@ class AppDatabase {
     String? dossierUuid,
     String? numeroConteneur,
     String? dimension,
+    double? poids,
+    String? natureMarchandise,
     String? dateSortiPort,
     String? nomTransporteur,
     String? marqueCamion,
@@ -1207,6 +1527,8 @@ class AppDatabase {
         'dossier_uuid': dossierUuid,
         'numero_conteneur': numeroConteneur,
         'dimension': dimension,
+        'poids': poids,
+        'nature_marchandise': natureMarchandise,
         'date_sorti_port': dateSortiPort,
         'nom_transporteur': nomTransporteur,
         'marque_camion': marqueCamion,
@@ -1273,11 +1595,13 @@ class AppDatabase {
   Future<List<Interchange>> getInterchangesByConteneur(
     String conteneurUuid,
   ) async {
-    final rows = await smartQuery(
-      'interchange',
-      where: 'conteneur_uuid = ?',
-      whereArgs: [conteneurUuid],
-      orderBy: 'page ASC',
+    final rows = await _getManagedDocuments(
+      table: 'interchange',
+      ownerTable: 'conteneurs',
+      ownerUuidColumn: 'conteneur_uuid',
+      ownerLabelColumn: 'numero_conteneur',
+      ownerUuid: conteneurUuid,
+      folder: 'interchange',
     );
     return rows.map(Interchange.fromMap).toList();
   }
@@ -1298,52 +1622,101 @@ class AppDatabase {
 
   Future<void> createInterchange({
     required String conteneurUuid,
-    required Uint8List scan,
     required String nomFichier,
     int? page,
   }) async {
     await smartInsert('interchange', {
       'uuid': const Uuid().v4(),
       'conteneur_uuid': conteneurUuid,
-      'scan': scan,
+      'scan': null,
       'nom_fichier': nomFichier,
       'page': page,
     });
   }
 
   Future<void> deleteInterchange(String uuid) async {
-    await smartDelete('interchange', where: 'uuid = ?', whereArgs: [uuid]);
+    await _deleteManagedDocument('interchange', uuid);
   }
 
   // ── Scan BL CRUD ──────────────────────────────────────────────────────────
 
   Future<List<ScanBl>> getScanBlByDossier(String dossierUuid) async {
-    final rows = await smartQuery(
-      'scan_bl',
-      where: 'dossier_uuid = ?',
-      whereArgs: [dossierUuid],
-      orderBy: 'page ASC',
+    final db = await initialize();
+    final rows = await db.rawQuery(
+      '''
+      SELECT sb.*, d.numero_bl
+      FROM scan_bl sb
+      LEFT JOIN dossiers d ON d.uuid = sb.dossier_uuid
+      WHERE sb.id > 0 AND sb.dossier_uuid = ?
+      ORDER BY sb.page ASC
+      ''',
+      [dossierUuid],
     );
-    return rows.map(ScanBl.fromMap).toList();
+    final migratedRows = <Map<String, Object?>>[];
+    for (final rawRow in rows) {
+      final row = Map<String, Object?>.from(rawRow)..remove('numero_bl');
+      final currentName = row['nom_fichier']?.toString() ?? '';
+      if (currentName.isEmpty) {
+        migratedRows.add(row);
+        continue;
+      }
+
+      final localPath = await buildScanBlFilePath(
+        numeroBl: rawRow['numero_bl']?.toString() ?? dossierUuid,
+        fileName: path.basename(currentName),
+      );
+      final scanValue = row['scan'];
+      Uint8List? bytes;
+      if (scanValue is Uint8List) {
+        bytes = scanValue;
+      } else if (scanValue is List) {
+        bytes = Uint8List.fromList(List<int>.from(scanValue));
+      }
+      if (bytes != null &&
+          bytes.isNotEmpty &&
+          !await File(localPath).exists()) {
+        await Directory(path.dirname(localPath)).create(recursive: true);
+        await File(localPath).writeAsBytes(bytes, flush: true);
+      }
+      if (currentName != localPath || scanValue != null) {
+        await db.update(
+          'scan_bl',
+          {'nom_fichier': localPath, 'scan': null},
+          where: 'uuid = ?',
+          whereArgs: [row['uuid']],
+        );
+        row['nom_fichier'] = localPath;
+        row['scan'] = null;
+      }
+      migratedRows.add(row);
+    }
+    return migratedRows.map(ScanBl.fromMap).toList();
   }
 
   Future<void> createScanBl({
     required String dossierUuid,
-    required Uint8List scan,
     required String nomFichier,
     int? page,
   }) async {
     await smartInsert('scan_bl', {
       'uuid': const Uuid().v4(),
       'dossier_uuid': dossierUuid,
-      'scan': scan,
+      'scan': null,
       'nom_fichier': nomFichier,
       'page': page,
     });
   }
 
   Future<void> deleteScanBl(String uuid) async {
+    final record = await getRawRecordByUuid('scan_bl', uuid);
     await smartDelete('scan_bl', where: 'uuid = ?', whereArgs: [uuid]);
+    final filePath = record?['nom_fichier']?.toString();
+    if (filePath != null && filePath.isNotEmpty) {
+      final file = File(filePath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    }
   }
 
   void _appendDepotArgentFilters(
@@ -1924,6 +2297,16 @@ class AppDatabase {
     String? dateVoyage,
     String? lieuDepart,
     String? lieuDestination,
+    String? dimensionConteneur,
+    double? poidsConteneur,
+    String? natureMarchandise,
+    String? dateDepartOrigine,
+    String? dateArriverDestination,
+    String? dateDepartRetour,
+    String? dateArriverRetour,
+    String? natureMarchandiseRetour,
+    String? nomClientRetour,
+    double? montantConvenuRetour,
     double? montantConvenu,
     String? monnaieUuid,
     String? statut,
@@ -1939,6 +2322,16 @@ class AppDatabase {
       'date_voyage': dateVoyage,
       'lieu_depart': lieuDepart,
       'lieu_destination': lieuDestination,
+      'dimension_conteneur': dimensionConteneur,
+      'poids_conteneur': poidsConteneur,
+      'nature_marchandise': natureMarchandise,
+      'date_depart_origine': dateDepartOrigine,
+      'date_arriver_destination': dateArriverDestination,
+      'date_depart_retour': dateDepartRetour,
+      'date_arriver_retour': dateArriverRetour,
+      'nature_marchandise_retour': natureMarchandiseRetour,
+      'nom_client_retour': nomClientRetour,
+      'montant_convenu_retour': montantConvenuRetour,
       'montant_convenu': montantConvenu,
       'monnaie_uuid': monnaieUuid,
       'statut': statut,
@@ -1956,6 +2349,16 @@ class AppDatabase {
     String? dateVoyage,
     String? lieuDepart,
     String? lieuDestination,
+    String? dimensionConteneur,
+    double? poidsConteneur,
+    String? natureMarchandise,
+    String? dateDepartOrigine,
+    String? dateArriverDestination,
+    String? dateDepartRetour,
+    String? dateArriverRetour,
+    String? natureMarchandiseRetour,
+    String? nomClientRetour,
+    double? montantConvenuRetour,
     double? montantConvenu,
     String? monnaieUuid,
     String? statut,
@@ -1972,6 +2375,16 @@ class AppDatabase {
         'date_voyage': dateVoyage,
         'lieu_depart': lieuDepart,
         'lieu_destination': lieuDestination,
+        'dimension_conteneur': dimensionConteneur,
+        'poids_conteneur': poidsConteneur,
+        'nature_marchandise': natureMarchandise,
+        'date_depart_origine': dateDepartOrigine,
+        'date_arriver_destination': dateArriverDestination,
+        'date_depart_retour': dateDepartRetour,
+        'date_arriver_retour': dateArriverRetour,
+        'nature_marchandise_retour': natureMarchandiseRetour,
+        'nom_client_retour': nomClientRetour,
+        'montant_convenu_retour': montantConvenuRetour,
         'montant_convenu': montantConvenu,
         'monnaie_uuid': monnaieUuid,
         'statut': statut,
@@ -2031,32 +2444,33 @@ class AppDatabase {
   }
 
   Future<List<ScanVoyage>> getScanVoyageByVoyage(String voyageUuid) async {
-    final rows = await smartQuery(
-      'scan_voyage',
-      where: 'voyage_uuid = ?',
-      whereArgs: [voyageUuid],
-      orderBy: 'page ASC',
+    final rows = await _getManagedDocuments(
+      table: 'scan_voyage',
+      ownerTable: 'voyages',
+      ownerUuidColumn: 'voyage_uuid',
+      ownerLabelColumn: 'numero_voyage',
+      ownerUuid: voyageUuid,
+      folder: 'scan_voyage',
     );
     return rows.map(ScanVoyage.fromMap).toList();
   }
 
   Future<void> createScanVoyage({
     required String voyageUuid,
-    required Uint8List scan,
     required String nomFichier,
     int? page,
   }) async {
     await smartInsert('scan_voyage', {
       'uuid': const Uuid().v4(),
       'voyage_uuid': voyageUuid,
-      'scan': scan,
+      'scan': null,
       'nom_fichier': nomFichier,
       'page': page,
     });
   }
 
   Future<void> deleteScanVoyage(String uuid) async {
-    await smartDelete('scan_voyage', where: 'uuid = ?', whereArgs: [uuid]);
+    await _deleteManagedDocument('scan_voyage', uuid);
   }
 
   Future<void> deleteVoyage(String uuid) async {

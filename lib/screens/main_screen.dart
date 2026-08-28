@@ -28,7 +28,7 @@ bool canAccessCompany(Utilisateur user, AppCompany company) {
   if (role == 'gestionnaire kinshasa' || role == 'gestionnaire matadi') {
     return company == AppCompany.marian;
   }
-  if (role == 'opérateur logistique') {
+  if (role == 'opérateur logistique' || role == 'caissier') {
     return company == AppCompany.makoso;
   }
   return true;

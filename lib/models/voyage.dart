@@ -6,6 +6,16 @@ class Voyage {
   final String? dateVoyage;
   final String? lieuDepart;
   final String? lieuDestination;
+  final String? dimensionConteneur;
+  final double? poidsConteneur;
+  final String? natureMarchandise;
+  final String? dateDepartOrigine;
+  final String? dateArriverDestination;
+  final String? dateDepartRetour;
+  final String? dateArriverRetour;
+  final String? natureMarchandiseRetour;
+  final String? nomClientRetour;
+  final double? montantConvenuRetour;
   final double? montantConvenu;
   final String? monnaieUuid;
   final String? statut;
@@ -23,6 +33,16 @@ class Voyage {
     this.dateVoyage,
     this.lieuDepart,
     this.lieuDestination,
+    this.dimensionConteneur,
+    this.poidsConteneur,
+    this.natureMarchandise,
+    this.dateDepartOrigine,
+    this.dateArriverDestination,
+    this.dateDepartRetour,
+    this.dateArriverRetour,
+    this.natureMarchandiseRetour,
+    this.nomClientRetour,
+    this.montantConvenuRetour,
     this.montantConvenu,
     this.monnaieUuid,
     this.statut,
@@ -42,6 +62,16 @@ class Voyage {
       dateVoyage: map['date_voyage'] as String?,
       lieuDepart: map['lieu_depart'] as String?,
       lieuDestination: map['lieu_destination'] as String?,
+      dimensionConteneur: map['dimension_conteneur'] as String?,
+      poidsConteneur: (map['poids_conteneur'] as num?)?.toDouble(),
+      natureMarchandise: map['nature_marchandise'] as String?,
+      dateDepartOrigine: map['date_depart_origine'] as String?,
+      dateArriverDestination: map['date_arriver_destination'] as String?,
+      dateDepartRetour: map['date_depart_retour'] as String?,
+      dateArriverRetour: map['date_arriver_retour'] as String?,
+      natureMarchandiseRetour: map['nature_marchandise_retour'] as String?,
+      nomClientRetour: map['nom_client_retour'] as String?,
+      montantConvenuRetour: (map['montant_convenu_retour'] as num?)?.toDouble(),
       montantConvenu: (map['montant_convenu'] as num?)?.toDouble(),
       monnaieUuid: map['monnaie_uuid'] as String?,
       statut: map['statut'] as String?,

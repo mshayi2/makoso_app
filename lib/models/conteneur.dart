@@ -5,6 +5,8 @@ class Conteneur {
   final String? dossierUuid;
   final String? numeroConteneur;
   final String? dimension;
+  final double? poids;
+  final String? natureMarchandise;
   final String? dateSortiPort;
   final String? nomTransporteur;
   final String? marqueCamion;
@@ -24,6 +26,8 @@ class Conteneur {
     this.dossierUuid,
     this.numeroConteneur,
     this.dimension,
+    this.poids,
+    this.natureMarchandise,
     this.dateSortiPort,
     this.nomTransporteur,
     this.marqueCamion,
@@ -45,6 +49,8 @@ class Conteneur {
       dossierUuid: map['dossier_uuid'] as String?,
       numeroConteneur: map['numero_conteneur'] as String?,
       dimension: map['dimension'] as String?,
+      poids: (map['poids'] as num?)?.toDouble(),
+      natureMarchandise: map['nature_marchandise'] as String?,
       dateSortiPort: map['date_sorti_port'] as String?,
       nomTransporteur: map['nom_transporteur'] as String?,
       marqueCamion: map['marque_camion'] as String?,
@@ -52,7 +58,8 @@ class Conteneur {
       nomChauffeur: map['nom_chauffeur'] as String?,
       numeroChauffeur: map['numero_chauffeur'] as String?,
       lieuDechargement: map['lieu_dechargement'] as String?,
-      dateArriverLieuDechargement: map['date_arriver_lieu_dechargement'] as String?,
+      dateArriverLieuDechargement:
+          map['date_arriver_lieu_dechargement'] as String?,
       dateDechargement: map['date_dechargement'] as String?,
       dateDepartRetourPort: map['date_depart_retour_port'] as String?,
       dateRetourPort: map['date_retour_port'] as String?,

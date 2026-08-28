@@ -5,6 +5,7 @@ import '../models/depot_argent.dart';
 import '../models/monnaie.dart';
 import '../models/utilisateur.dart';
 import '../widgets/horizontal_table_scroller.dart';
+import '../widgets/vertical_table_scroller.dart';
 import 'main_screen.dart' show AppCompany;
 
 const int _kDepotPageSize = 250;
@@ -50,6 +51,8 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   bool _isSaving = false;
   bool _isLoading = true;
   bool _isGridLoading = true;
+  bool _isFormExpanded = true;
+  bool _isHistoryExpanded = true;
   int _currentPage = 0;
   int _totalRows = 0;
 
@@ -249,6 +252,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
 
   Future<void> _startEdit(DepotArgentRecord depot) async {
     setState(() {
+      _isFormExpanded = true;
       _editingDepot = depot;
       _selectedLibelle = depot.libelle;
       _selectedMonnaieUuid = depot.monnaieUuid;
@@ -526,6 +530,8 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   }
 
   Widget _buildFormCard() {
+    final canCollapse = widget.company == AppCompany.makoso ||
+        widget.company == AppCompany.marian;
     return Card(
       elevation: 2,
       child: Padding(
@@ -535,21 +541,35 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Icon(
-                    _editingDepot != null ? Icons.edit_outlined : Icons.account_balance_wallet_outlined,
-                    color: const Color(0xFF1A237E),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _editingDepot != null ? 'Modifier un dépôt d\'argent' : 'Ajouter un dépôt d\'argent',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
-                  ),
-                ],
+              InkWell(
+                onTap: canCollapse
+                    ? () => setState(() => _isFormExpanded = !_isFormExpanded)
+                    : null,
+                child: Row(
+                  children: [
+                    Icon(
+                      _editingDepot != null ? Icons.edit_outlined : Icons.account_balance_wallet_outlined,
+                      color: const Color(0xFF1A237E),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _editingDepot != null ? 'Modifier un dépôt d\'argent' : 'Ajouter un dépôt d\'argent',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
+                      ),
+                    ),
+                    if (canCollapse)
+                      Icon(
+                        _isFormExpanded ? Icons.expand_less : Icons.expand_more,
+                        color: const Color(0xFF1A237E),
+                      ),
+                  ],
+                ),
               ),
-              const Divider(height: 24),
-              _buildThreeColumnForm(),
+              if (!canCollapse || _isFormExpanded) ...[
+                const Divider(height: 24),
+                _buildThreeColumnForm(),
+              ],
             ],
           ),
         ),
@@ -558,6 +578,8 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   }
 
   Widget _buildGridCard() {
+    final canCollapse = widget.company == AppCompany.makoso ||
+        widget.company == AppCompany.marian;
     return Card(
       elevation: 2,
       child: Padding(
@@ -565,18 +587,31 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
-              children: [
-                Icon(Icons.history_outlined, color: Color(0xFF1A237E)),
-                SizedBox(width: 8),
-                Text(
-                  'Historique des dépôts',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
-                ),
-              ],
+            InkWell(
+              onTap: canCollapse
+                  ? () => setState(() => _isHistoryExpanded = !_isHistoryExpanded)
+                  : null,
+              child: Row(
+                children: [
+                  const Icon(Icons.history_outlined, color: Color(0xFF1A237E)),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Historique des dépôts',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
+                    ),
+                  ),
+                  if (canCollapse)
+                    Icon(
+                      _isHistoryExpanded ? Icons.expand_less : Icons.expand_more,
+                      color: const Color(0xFF1A237E),
+                    ),
+                ],
+              ),
             ),
-            const Divider(height: 24),
-            Row(
+            if (!canCollapse || _isHistoryExpanded) ...[
+              const Divider(height: 24),
+              Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
@@ -601,19 +636,19 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-            _buildPaginationBar(),
-            const SizedBox(height: 12),
-            if (_isGridLoading)
-              const Expanded(child: Center(child: CircularProgressIndicator()))
-            else if (_depots.isEmpty)
-              const Expanded(child: Center(child: Text('Aucun dépôt trouvé.')))
-            else
-              Expanded(
-                child: HorizontalTableScroller(
-                  child: SingleChildScrollView(
-                    child: DataTable(
+              ),
+              const SizedBox(height: 12),
+              _buildPaginationBar(),
+              const SizedBox(height: 12),
+              if (_isGridLoading)
+                const Expanded(child: Center(child: CircularProgressIndicator()))
+              else if (_depots.isEmpty)
+                const Expanded(child: Center(child: Text('Aucun dépôt trouvé.')))
+              else
+                Expanded(
+                  child: HorizontalTableScroller(
+                    child: VerticalTableScroller(
+                      child: DataTable(
                       headingRowColor: WidgetStateProperty.all(const Color(0xFF1A237E).withValues(alpha: 0.08)),
                       columnSpacing: 20,
                       columns: const [
@@ -660,10 +695,11 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                           ],
                         );
                       }).toList(),
+                      ),
                     ),
                   ),
                 ),
-              ),
+            ],
           ],
         ),
       ),
@@ -683,7 +719,10 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
         children: [
           _buildFormCard(),
           const SizedBox(height: 16),
-          Expanded(child: _buildGridCard()),
+          if (_isHistoryExpanded)
+            Expanded(child: _buildGridCard())
+          else
+            _buildGridCard(),
         ],
       ),
     );

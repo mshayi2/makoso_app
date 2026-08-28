@@ -7,6 +7,7 @@ import '../models/dossier.dart';
 import '../models/monnaie.dart';
 import '../models/utilisateur.dart';
 import '../widgets/horizontal_table_scroller.dart';
+import '../widgets/vertical_table_scroller.dart';
 import 'main_screen.dart' show AppCompany;
 
 const int _kDepensePageSize = 250;
@@ -49,6 +50,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
   bool _isSaving = false;
   bool _isLoading = true;
   bool _isGridLoading = true;
+  bool _isFormExpanded = true;
+  bool _isHistoryExpanded = true;
   int _currentPage = 0;
   int _totalRows = 0;
 
@@ -530,6 +533,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
 
   Future<void> _startEdit(DepenseRecord depense) async {
     setState(() {
+      _isFormExpanded = true;
       _editingDepense = depense;
       _libelleCtrl.text = depense.libelle ?? '';
       _montantCtrl.text = depense.montant?.toString() ?? '';
@@ -920,6 +924,39 @@ class _DepensesScreenState extends State<DepensesScreen> {
   }
 
   Widget _buildFormCard() {
+    final canCollapse = widget.company == AppCompany.makoso ||
+        widget.company == AppCompany.marian;
+    final header = InkWell(
+      onTap: canCollapse
+          ? () => setState(() => _isFormExpanded = !_isFormExpanded)
+          : null,
+      child: Row(
+        children: [
+          Icon(
+            _editingDepense != null ? Icons.edit_outlined : Icons.money_off_outlined,
+            color: const Color(0xFF1A237E),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _editingDepense != null ? 'Modifier une dépense' : 'Ajouter une dépense',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
+            ),
+          ),
+          if (canCollapse)
+            Icon(
+              _isFormExpanded ? Icons.expand_less : Icons.expand_more,
+              color: const Color(0xFF1A237E),
+            ),
+        ],
+      ),
+    );
+    if (canCollapse && !_isFormExpanded) {
+      return Card(
+        elevation: 2,
+        child: Padding(padding: const EdgeInsets.all(20), child: header),
+      );
+    }
     return Card(
       elevation: 2,
       child: Padding(
@@ -929,19 +966,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Icon(
-                    _editingDepense != null ? Icons.edit_outlined : Icons.money_off_outlined,
-                    color: const Color(0xFF1A237E),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _editingDepense != null ? 'Modifier une dépense' : 'Ajouter une dépense',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
-                  ),
-                ],
-              ),
+              header,
               const Divider(height: 24),
               _buildThreeColumnForm(),
             ],
@@ -952,6 +977,36 @@ class _DepensesScreenState extends State<DepensesScreen> {
   }
 
   Widget _buildGridCard() {
+    final canCollapse = widget.company == AppCompany.makoso ||
+        widget.company == AppCompany.marian;
+    final header = InkWell(
+      onTap: canCollapse
+          ? () => setState(() => _isHistoryExpanded = !_isHistoryExpanded)
+          : null,
+      child: Row(
+        children: [
+          const Icon(Icons.history_outlined, color: Color(0xFF1A237E)),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Historique des dépenses',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
+            ),
+          ),
+          if (canCollapse)
+            Icon(
+              _isHistoryExpanded ? Icons.expand_less : Icons.expand_more,
+              color: const Color(0xFF1A237E),
+            ),
+        ],
+      ),
+    );
+    if (canCollapse && !_isHistoryExpanded) {
+      return Card(
+        elevation: 2,
+        child: Padding(padding: const EdgeInsets.all(16), child: header),
+      );
+    }
     return Card(
       elevation: 2,
       child: Padding(
@@ -959,16 +1014,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
-              children: [
-                Icon(Icons.history_outlined, color: Color(0xFF1A237E)),
-                SizedBox(width: 8),
-                Text(
-                  'Historique des dépenses',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
-                ),
-              ],
-            ),
+            header,
             const Divider(height: 24),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1025,7 +1071,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
             else
               Expanded(
                 child: HorizontalTableScroller(
-                  child: SingleChildScrollView(
+                  child: VerticalTableScroller(
                     child: DataTable(
                       headingRowColor: WidgetStateProperty.all(const Color(0xFF1A237E).withValues(alpha: 0.08)),
                       columnSpacing: 20,
@@ -1123,7 +1169,10 @@ class _DepensesScreenState extends State<DepensesScreen> {
         children: [
           _buildFormCard(),
           const SizedBox(height: 16),
-          Expanded(child: _buildGridCard()),
+          if (_isHistoryExpanded)
+            Expanded(child: _buildGridCard())
+          else
+            _buildGridCard(),
         ],
       ),
     );

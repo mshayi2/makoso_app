@@ -29,8 +29,10 @@ class _ClientsScreenState extends State<ClientsScreen> {
   List<Client> _clients = [];
 
   bool get _canEdit {
-    final role = widget.user.role ?? '';
-    return role == 'admin' || role == 'opérateur logistique';
+    final role = widget.user.role?.toLowerCase().trim() ?? '';
+    return role == 'admin' ||
+        role == 'opérateur logistique' ||
+        role == 'gestionnaire kinshasa';
   }
 
   @override

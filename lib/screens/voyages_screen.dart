@@ -1,6 +1,8 @@
-import 'dart:typed_data';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as path;
 
 import '../database/app_database.dart';
 import '../models/camion.dart';
@@ -14,6 +16,7 @@ import '../widgets/horizontal_table_scroller.dart';
 import 'main_screen.dart' show AppCompany;
 
 const List<String> _kStatuts = ['En attente', 'En cours', 'Terminé', 'Annulé'];
+const List<String> _kDimensionsConteneur = ['20 pieds', '40 pieds'];
 
 class VoyagesScreen extends StatefulWidget {
   final Utilisateur user;
@@ -30,8 +33,18 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
   final _dateVoyageCtrl = TextEditingController();
   final _lieuDepartCtrl = TextEditingController();
   final _lieuDestinationCtrl = TextEditingController();
+  final _poidsConteneurCtrl = TextEditingController();
+  final _natureMarchandiseCtrl = TextEditingController();
+  final _dateDepartOrigineCtrl = TextEditingController();
+  final _dateArriverDestinationCtrl = TextEditingController();
+  final _dateDepartRetourCtrl = TextEditingController();
+  final _dateArriverRetourCtrl = TextEditingController();
+  final _natureMarchandiseRetourCtrl = TextEditingController();
+  final _nomClientRetourCtrl = TextEditingController();
+  final _montantConvenuRetourCtrl = TextEditingController();
   final _montantCtrl = TextEditingController();
   final _searchCtrl = TextEditingController();
+  final _formScrollCtrl = ScrollController();
 
   String? _selectedCamionUuid;
   String? _selectedChauffeurUuid;
@@ -39,10 +52,13 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
   String? _selectedMonnaieUuid;
   String? _selectedStatut;
   String? _selectedClientUuid;
+  String? _selectedDimensionConteneur;
 
   Voyage? _editingVoyage;
   bool _isSaving = false;
   bool _isLoading = true;
+  bool _isFormExpanded = true;
+  bool _isListExpanded = true;
 
   List<Voyage> _voyages = [];
   List<Camion> _camions = [];
@@ -63,8 +79,18 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
     _dateVoyageCtrl.dispose();
     _lieuDepartCtrl.dispose();
     _lieuDestinationCtrl.dispose();
+    _poidsConteneurCtrl.dispose();
+    _natureMarchandiseCtrl.dispose();
+    _dateDepartOrigineCtrl.dispose();
+    _dateArriverDestinationCtrl.dispose();
+    _dateDepartRetourCtrl.dispose();
+    _dateArriverRetourCtrl.dispose();
+    _natureMarchandiseRetourCtrl.dispose();
+    _nomClientRetourCtrl.dispose();
+    _montantConvenuRetourCtrl.dispose();
     _montantCtrl.dispose();
     _searchCtrl.dispose();
+    _formScrollCtrl.dispose();
     super.dispose();
   }
 
@@ -146,8 +172,8 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
     return '${parts[2]}/${parts[1]}/${parts[0]}';
   }
 
-  Future<void> _pickDate() async {
-    final initial = DateTime.tryParse(_dateVoyageCtrl.text) ?? DateTime.now();
+  Future<void> _pickDate(TextEditingController controller) async {
+    final initial = DateTime.tryParse(controller.text) ?? DateTime.now();
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
@@ -156,7 +182,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
     );
     if (picked != null) {
       setState(() {
-        _dateVoyageCtrl.text =
+        controller.text =
             '${picked.year.toString().padLeft(4, '0')}-'
             '${picked.month.toString().padLeft(2, '0')}-'
             '${picked.day.toString().padLeft(2, '0')}';
@@ -166,11 +192,27 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
 
   void _startEdit(Voyage v) {
     setState(() {
+      if (widget.company == AppCompany.marian) {
+        _isFormExpanded = true;
+      }
       _editingVoyage = v;
       _numeroVoyageCtrl.text = v.numeroVoyage ?? '';
       _dateVoyageCtrl.text = v.dateVoyage ?? '';
       _lieuDepartCtrl.text = v.lieuDepart ?? '';
       _lieuDestinationCtrl.text = v.lieuDestination ?? '';
+      _selectedDimensionConteneur =
+          _kDimensionsConteneur.contains(v.dimensionConteneur)
+          ? v.dimensionConteneur
+          : null;
+      _poidsConteneurCtrl.text = v.poidsConteneur?.toString() ?? '';
+      _natureMarchandiseCtrl.text = v.natureMarchandise ?? '';
+      _dateDepartOrigineCtrl.text = v.dateDepartOrigine ?? '';
+      _dateArriverDestinationCtrl.text = v.dateArriverDestination ?? '';
+      _dateDepartRetourCtrl.text = v.dateDepartRetour ?? '';
+      _dateArriverRetourCtrl.text = v.dateArriverRetour ?? '';
+      _natureMarchandiseRetourCtrl.text = v.natureMarchandiseRetour ?? '';
+      _nomClientRetourCtrl.text = v.nomClientRetour ?? '';
+      _montantConvenuRetourCtrl.text = v.montantConvenuRetour?.toString() ?? '';
       _montantCtrl.text = v.montantConvenu != null
           ? v.montantConvenu.toString()
           : '';
@@ -201,6 +243,15 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
       _dateVoyageCtrl.clear();
       _lieuDepartCtrl.clear();
       _lieuDestinationCtrl.clear();
+      _poidsConteneurCtrl.clear();
+      _natureMarchandiseCtrl.clear();
+      _dateDepartOrigineCtrl.clear();
+      _dateArriverDestinationCtrl.clear();
+      _dateDepartRetourCtrl.clear();
+      _dateArriverRetourCtrl.clear();
+      _natureMarchandiseRetourCtrl.clear();
+      _nomClientRetourCtrl.clear();
+      _montantConvenuRetourCtrl.clear();
       _montantCtrl.clear();
       _selectedCamionUuid = null;
       _selectedChauffeurUuid = null;
@@ -208,6 +259,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
       _selectedMonnaieUuid = null;
       _selectedStatut = null;
       _selectedClientUuid = null;
+      _selectedDimensionConteneur = null;
     });
     _refreshNextVoyageNumber();
   }
@@ -218,6 +270,12 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
     final isEditing = _editingVoyage != null;
     final montant = double.tryParse(
       _montantCtrl.text.trim().replaceAll(',', '.'),
+    );
+    final poidsConteneur = double.tryParse(
+      _poidsConteneurCtrl.text.trim().replaceAll(',', '.'),
+    );
+    final montantConvenuRetour = double.tryParse(
+      _montantConvenuRetourCtrl.text.trim().replaceAll(',', '.'),
     );
     try {
       final String? numeroVoyage;
@@ -237,6 +295,20 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
           dateVoyage: _emptyToNull(_dateVoyageCtrl.text),
           lieuDepart: _emptyToNull(_lieuDepartCtrl.text),
           lieuDestination: _emptyToNull(_lieuDestinationCtrl.text),
+          dimensionConteneur: _selectedDimensionConteneur,
+          poidsConteneur: poidsConteneur,
+          natureMarchandise: _emptyToNull(_natureMarchandiseCtrl.text),
+          dateDepartOrigine: _emptyToNull(_dateDepartOrigineCtrl.text),
+          dateArriverDestination: _emptyToNull(
+            _dateArriverDestinationCtrl.text,
+          ),
+          dateDepartRetour: _emptyToNull(_dateDepartRetourCtrl.text),
+          dateArriverRetour: _emptyToNull(_dateArriverRetourCtrl.text),
+          natureMarchandiseRetour: _emptyToNull(
+            _natureMarchandiseRetourCtrl.text,
+          ),
+          nomClientRetour: _emptyToNull(_nomClientRetourCtrl.text),
+          montantConvenuRetour: montantConvenuRetour,
           montantConvenu: montant,
           monnaieUuid: _selectedMonnaieUuid,
           statut: _selectedStatut,
@@ -251,6 +323,20 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
           dateVoyage: _emptyToNull(_dateVoyageCtrl.text),
           lieuDepart: _emptyToNull(_lieuDepartCtrl.text),
           lieuDestination: _emptyToNull(_lieuDestinationCtrl.text),
+          dimensionConteneur: _selectedDimensionConteneur,
+          poidsConteneur: poidsConteneur,
+          natureMarchandise: _emptyToNull(_natureMarchandiseCtrl.text),
+          dateDepartOrigine: _emptyToNull(_dateDepartOrigineCtrl.text),
+          dateArriverDestination: _emptyToNull(
+            _dateArriverDestinationCtrl.text,
+          ),
+          dateDepartRetour: _emptyToNull(_dateDepartRetourCtrl.text),
+          dateArriverRetour: _emptyToNull(_dateArriverRetourCtrl.text),
+          natureMarchandiseRetour: _emptyToNull(
+            _natureMarchandiseRetourCtrl.text,
+          ),
+          nomClientRetour: _emptyToNull(_nomClientRetourCtrl.text),
+          montantConvenuRetour: montantConvenuRetour,
           montantConvenu: montant,
           monnaieUuid: _selectedMonnaieUuid,
           statut: _selectedStatut,
@@ -322,6 +408,32 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
 
   String? _emptyToNull(String s) => s.trim().isEmpty ? null : s.trim();
 
+  String? _validateOptionalDecimal(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    return double.tryParse(value.trim().replaceAll(',', '.')) == null
+        ? 'Nombre invalide'
+        : null;
+  }
+
+  Widget _dateFormField(String label, TextEditingController controller) {
+    return TextFormField(
+      controller: controller,
+      readOnly: true,
+      onTap: () => _pickDate(controller),
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        prefixIcon: const Icon(Icons.calendar_today_outlined),
+        suffixIcon: controller.text.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () => setState(controller.clear),
+              )
+            : null,
+      ),
+    );
+  }
+
   Future<void> _validateVoyage(Voyage v) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -392,21 +504,49 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
               children: [
                 ElevatedButton.icon(
                   onPressed: () async {
-                    // Pick image file using file picker if available, else skip
-                    // Simple approach: use image bytes from clipboard or file
-                    final result = await _pickScanFile();
-                    if (result == null) return;
-                    final page = scans.length + 1;
-                    await AppDatabase.instance.createScanVoyage(
-                      voyageUuid: voyage.uuid,
-                      scan: result.$1,
-                      nomFichier: result.$2,
-                      page: page,
+                    final result = await FilePicker.platform.pickFiles(
+                      type: FileType.custom,
+                      allowedExtensions: const [
+                        'pdf',
+                        'png',
+                        'jpg',
+                        'jpeg',
+                        'gif',
+                        'webp',
+                        'bmp',
+                      ],
+                      allowMultiple: false,
                     );
-                    scans = await AppDatabase.instance.getScanVoyageByVoyage(
-                      voyage.uuid,
-                    );
-                    setDlgState(() {});
+                    if (result == null || result.files.first.path == null) {
+                      return;
+                    }
+                    try {
+                      final localPath = await AppDatabase.instance
+                          .storeManagedDocument(
+                            folder: 'scan_voyage',
+                            ownerLabel: voyage.numeroVoyage ?? voyage.uuid,
+                            sourcePath: result.files.first.path!,
+                          );
+                      final page = scans.length + 1;
+                      await AppDatabase.instance.createScanVoyage(
+                        voyageUuid: voyage.uuid,
+                        nomFichier: localPath,
+                        page: page,
+                      );
+                      scans = await AppDatabase.instance.getScanVoyageByVoyage(
+                        voyage.uuid,
+                      );
+                      setDlgState(() {});
+                    } catch (error) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Erreur : $error'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
                   },
                   icon: const Icon(Icons.add_photo_alternate_outlined),
                   label: const Text('Ajouter une page'),
@@ -424,23 +564,38 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                                 Icons.insert_drive_file_outlined,
                               ),
                               title: Text(
-                                s.nomFichier ?? 'Page ${s.page ?? i + 1}',
+                                s.nomFichier == null
+                                    ? 'Page ${s.page ?? i + 1}'
+                                    : path.basename(s.nomFichier!),
                               ),
                               subtitle: Text('Page ${s.page ?? i + 1}'),
-                              trailing: IconButton(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: Colors.red,
-                                ),
-                                tooltip: 'Supprimer',
-                                onPressed: () async {
-                                  await AppDatabase.instance.deleteScanVoyage(
-                                    s.uuid,
-                                  );
-                                  scans = await AppDatabase.instance
-                                      .getScanVoyageByVoyage(voyage.uuid);
-                                  setDlgState(() {});
-                                },
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.visibility_outlined,
+                                      color: Color(0xFF1A237E),
+                                    ),
+                                    tooltip: 'Visualiser',
+                                    onPressed: () =>
+                                        _viewLocalDocument(s.nomFichier),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
+                                    tooltip: 'Supprimer',
+                                    onPressed: () async {
+                                      await AppDatabase.instance
+                                          .deleteScanVoyage(s.uuid);
+                                      scans = await AppDatabase.instance
+                                          .getScanVoyageByVoyage(voyage.uuid);
+                                      setDlgState(() {});
+                                    },
+                                  ),
+                                ],
                               ),
                             );
                           },
@@ -460,52 +615,75 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
     );
   }
 
-  Future<(Uint8List, String)?> _pickScanFile() async {
-    // Use file_picker if available, otherwise prompt user to select an image
-    try {
-      // ignore: undefined_prefixed_name
-      final result = await _filePicker();
-      return result;
-    } catch (_) {
-      return null;
+  Future<void> _viewLocalDocument(String? filePath) async {
+    if (filePath == null ||
+        filePath.isEmpty ||
+        !await File(filePath).exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Le fichier est introuvable sur ce poste.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
     }
-  }
 
-  Future<(Uint8List, String)?> _filePicker() async {
-    // Import file_picker dynamically to avoid compile error if not added
-    // Use an image picker approach via dart:io
-    if (!mounted) return null;
-    // Show a simple dialog to enter a filename (placeholder - real implementation uses file_picker)
-    final nameCtrl = TextEditingController();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Nom du fichier'),
-        content: TextField(
-          controller: nameCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Nom du fichier',
-            border: OutlineInputBorder(),
+    if (path.extension(filePath).toLowerCase() != '.pdf') {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => Dialog(
+          child: SizedBox(
+            width: 900,
+            height: 650,
+            child: Column(
+              children: [
+                ListTile(
+                  title: Text(path.basename(filePath)),
+                  trailing: IconButton(
+                    tooltip: 'Fermer',
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: InteractiveViewer(
+                    minScale: 0.5,
+                    maxScale: 5,
+                    child: Center(
+                      child: Image.file(File(filePath), fit: BoxFit.contain),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-          autofocus: true,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Annuler'),
+      );
+      return;
+    }
+
+    try {
+      if (Platform.isWindows) {
+        await Process.start('explorer.exe', [filePath]);
+      } else if (Platform.isMacOS) {
+        await Process.start('open', [filePath]);
+      } else if (Platform.isLinux) {
+        await Process.start('xdg-open', [filePath]);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Impossible d’ouvrir le PDF : $error'),
+            backgroundColor: Colors.red,
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-    final name = nameCtrl.text.trim();
-    nameCtrl.dispose();
-    if (confirmed != true) return null;
-    // Return empty placeholder bytes
-    return (Uint8List(0), name.isEmpty ? 'document' : name);
+        );
+      }
+    }
   }
 
   // ── Form ──────────────────────────────────────────────────────────────────
@@ -599,7 +777,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                       TextFormField(
                         controller: _dateVoyageCtrl,
                         readOnly: true,
-                        onTap: _pickDate,
+                        onTap: () => _pickDate(_dateVoyageCtrl),
                         decoration: InputDecoration(
                           labelText: 'Date du voyage',
                           border: const OutlineInputBorder(),
@@ -824,6 +1002,392 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
     );
   }
 
+  Widget _buildMarinaHorizontalForm() {
+    final header = InkWell(
+      onTap: () => setState(() => _isFormExpanded = !_isFormExpanded),
+      child: Row(
+        children: [
+          Icon(
+            _editingVoyage != null
+                ? Icons.edit_outlined
+                : Icons.add_circle_outline,
+            color: const Color(0xFF1A237E),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _editingVoyage != null
+                  ? 'Modifier un voyage'
+                  : 'Ajouter un voyage',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1A237E),
+              ),
+            ),
+          ),
+          Icon(
+            _isFormExpanded ? Icons.expand_less : Icons.expand_more,
+            color: const Color(0xFF1A237E),
+          ),
+        ],
+      ),
+    );
+    if (!_isFormExpanded) {
+      return Card(
+        elevation: 2,
+        child: Padding(padding: const EdgeInsets.all(20), child: header),
+      );
+    }
+
+    final fields = <Widget>[
+      TextFormField(
+        controller: _numeroVoyageCtrl,
+        readOnly: _editingVoyage == null || _editingVoyage?.valide == 1,
+        decoration: InputDecoration(
+          labelText: 'Numéro de voyage',
+          border: const OutlineInputBorder(),
+          prefixIcon: const Icon(Icons.tag),
+          suffixText: _editingVoyage == null
+              ? 'Auto'
+              : _editingVoyage?.valide == 1
+              ? 'Validé'
+              : null,
+          suffixStyle: const TextStyle(
+            color: Colors.green,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        validator: (value) {
+          if (_editingVoyage == null) return null;
+          return (value == null || value.trim().isEmpty)
+              ? 'Champ requis'
+              : null;
+        },
+      ),
+      DropdownButtonFormField<String>(
+        value: _selectedClientUuid,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Client',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.person_outline),
+        ),
+        items: [
+          const DropdownMenuItem(value: null, child: Text('— Aucun —')),
+          ..._marinaClients.map(
+            (client) => DropdownMenuItem(
+              value: client.uuid,
+              child: Text(client.nom, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+        onChanged: (value) => setState(() => _selectedClientUuid = value),
+      ),
+      TextFormField(
+        controller: _dateVoyageCtrl,
+        readOnly: true,
+        onTap: () => _pickDate(_dateVoyageCtrl),
+        decoration: InputDecoration(
+          labelText: 'Date du voyage',
+          border: const OutlineInputBorder(),
+          prefixIcon: const Icon(Icons.calendar_today_outlined),
+          suffixIcon: _dateVoyageCtrl.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () => setState(() => _dateVoyageCtrl.clear()),
+                )
+              : null,
+        ),
+      ),
+      TextFormField(
+        controller: _lieuDepartCtrl,
+        decoration: const InputDecoration(
+          labelText: 'Lieu de départ',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.location_on_outlined),
+        ),
+      ),
+      TextFormField(
+        controller: _lieuDestinationCtrl,
+        decoration: const InputDecoration(
+          labelText: 'Lieu de destination',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.flag_outlined),
+        ),
+      ),
+      DropdownButtonFormField<String>(
+        value: _selectedDimensionConteneur,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Dimension du conteneur',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.straighten_outlined),
+        ),
+        items: [
+          const DropdownMenuItem(value: null, child: Text('— Aucune —')),
+          ..._kDimensionsConteneur.map(
+            (dimension) =>
+                DropdownMenuItem(value: dimension, child: Text(dimension)),
+          ),
+        ],
+        onChanged: (value) =>
+            setState(() => _selectedDimensionConteneur = value),
+      ),
+      TextFormField(
+        controller: _poidsConteneurCtrl,
+        decoration: const InputDecoration(
+          labelText: 'Poids du conteneur',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.scale_outlined),
+        ),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        validator: _validateOptionalDecimal,
+      ),
+      TextFormField(
+        controller: _natureMarchandiseCtrl,
+        decoration: const InputDecoration(
+          labelText: 'Nature de la marchandise',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.category_outlined),
+        ),
+      ),
+      _dateFormField('Date départ origine', _dateDepartOrigineCtrl),
+      _dateFormField('Date arrivée destination', _dateArriverDestinationCtrl),
+      _dateFormField('Date départ retour', _dateDepartRetourCtrl),
+      _dateFormField('Date arrivée retour', _dateArriverRetourCtrl),
+      TextFormField(
+        controller: _natureMarchandiseRetourCtrl,
+        decoration: const InputDecoration(
+          labelText: 'Nature de la marchandise retour',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.category_outlined),
+        ),
+      ),
+      TextFormField(
+        controller: _nomClientRetourCtrl,
+        decoration: const InputDecoration(
+          labelText: 'Nom du client retour',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.person_outline),
+        ),
+      ),
+      if (!_isOpLogistique)
+        TextFormField(
+          controller: _montantConvenuRetourCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Montant convenu retour',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.attach_money),
+          ),
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          validator: _validateOptionalDecimal,
+        ),
+      DropdownButtonFormField<String>(
+        value: _selectedCamionUuid,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Camion',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.airport_shuttle_outlined),
+        ),
+        items: [
+          const DropdownMenuItem(value: null, child: Text('— Aucun —')),
+          ..._camions.map((camion) {
+            final label = [
+              camion.marque,
+              camion.plaque,
+            ].where((value) => value != null && value.isNotEmpty).join(' - ');
+            return DropdownMenuItem(
+              value: camion.uuid,
+              child: Text(label, overflow: TextOverflow.ellipsis),
+            );
+          }),
+        ],
+        onChanged: (value) => setState(() => _selectedCamionUuid = value),
+      ),
+      DropdownButtonFormField<String>(
+        value: _selectedChauffeurUuid,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Chauffeur',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.person_outlined),
+        ),
+        items: [
+          const DropdownMenuItem(value: null, child: Text('— Aucun —')),
+          ..._chauffeurs.map(
+            (chauffeur) => DropdownMenuItem(
+              value: chauffeur.uuid,
+              child: Text(chauffeur.nom, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+        onChanged: (value) => setState(() => _selectedChauffeurUuid = value),
+      ),
+      DropdownButtonFormField<String>(
+        value: _selectedConvoyeurUuid,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Convoyeur',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.person_outlined),
+        ),
+        items: [
+          const DropdownMenuItem(value: null, child: Text('— Aucun —')),
+          ..._convoyeurs.map(
+            (convoyeur) => DropdownMenuItem(
+              value: convoyeur.uuid,
+              child: Text(convoyeur.nom, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+        onChanged: (value) => setState(() => _selectedConvoyeurUuid = value),
+      ),
+      if (!_isOpLogistique)
+        TextFormField(
+          controller: _montantCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Montant convenu',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.attach_money),
+          ),
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) return null;
+            if (double.tryParse(value.trim().replaceAll(',', '.')) == null) {
+              return 'Nombre invalide';
+            }
+            return null;
+          },
+        ),
+      if (!_isOpLogistique)
+        DropdownButtonFormField<String>(
+          value: _selectedMonnaieUuid,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Monnaie',
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            const DropdownMenuItem(value: null, child: Text('—')),
+            ..._monnaies.map(
+              (monnaie) => DropdownMenuItem(
+                value: monnaie.uuid,
+                child: Text(monnaie.label, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+          ],
+          onChanged: (value) => setState(() => _selectedMonnaieUuid = value),
+        ),
+      DropdownButtonFormField<String>(
+        value: _selectedStatut,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Statut',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.flag_outlined),
+        ),
+        items: [
+          const DropdownMenuItem(value: null, child: Text('— Aucun —')),
+          ..._kStatuts.map(
+            (statut) => DropdownMenuItem(value: statut, child: Text(statut)),
+          ),
+        ],
+        onChanged: (value) => setState(() => _selectedStatut = value),
+      ),
+    ];
+
+    return Card(
+      elevation: 2,
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.52,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                header,
+                const Divider(height: 24),
+                Expanded(
+                  child: Scrollbar(
+                    controller: _formScrollCtrl,
+                    thumbVisibility: true,
+                    child: SingleChildScrollView(
+                      controller: _formScrollCtrl,
+                      padding: const EdgeInsets.only(right: 12),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          const spacing = 12.0;
+                          final fieldWidth =
+                              (constraints.maxWidth - spacing * 2) / 3;
+                          return Wrap(
+                            spacing: spacing,
+                            runSpacing: spacing,
+                            children: fields
+                                .map(
+                                  (field) =>
+                                      SizedBox(width: fieldWidth, child: field),
+                                )
+                                .toList(),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    if (_editingVoyage != null) ...[
+                      OutlinedButton.icon(
+                        onPressed: _cancelEdit,
+                        icon: const Icon(Icons.cancel_outlined),
+                        label: const Text('Annuler'),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    ElevatedButton.icon(
+                      onPressed: _isSaving ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1A237E),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 14,
+                          horizontal: 24,
+                        ),
+                      ),
+                      icon: _isSaving
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : Icon(
+                              _editingVoyage != null
+                                  ? Icons.save_outlined
+                                  : Icons.add,
+                            ),
+                      label: Text(
+                        _editingVoyage != null ? 'Modifier' : 'Ajouter',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   // ── List ──────────────────────────────────────────────────────────────────
   Color _statutColor(String? statut) {
     return switch (statut) {
@@ -836,6 +1400,39 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
   }
 
   Widget _buildList() {
+    final canCollapse = widget.company == AppCompany.marian;
+    final header = InkWell(
+      onTap: canCollapse
+          ? () => setState(() => _isListExpanded = !_isListExpanded)
+          : null,
+      child: Row(
+        children: [
+          const Icon(Icons.local_shipping_outlined, color: Color(0xFF1A237E)),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Liste des voyages',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1A237E),
+              ),
+            ),
+          ),
+          if (canCollapse)
+            Icon(
+              _isListExpanded ? Icons.expand_less : Icons.expand_more,
+              color: const Color(0xFF1A237E),
+            ),
+        ],
+      ),
+    );
+    if (canCollapse && !_isListExpanded) {
+      return Card(
+        elevation: 2,
+        child: Padding(padding: const EdgeInsets.all(16), child: header),
+      );
+    }
     return Card(
       elevation: 2,
       child: Padding(
@@ -843,20 +1440,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
-              children: [
-                Icon(Icons.local_shipping_outlined, color: Color(0xFF1A237E)),
-                SizedBox(width: 8),
-                Text(
-                  'Liste des voyages',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF1A237E),
-                  ),
-                ),
-              ],
-            ),
+            header,
             const Divider(height: 24),
             TextField(
               controller: _searchCtrl,
@@ -1026,6 +1610,23 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.company == AppCompany.marian) {
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildMarinaHorizontalForm(),
+            const SizedBox(height: 16),
+            if (_isListExpanded)
+              Expanded(child: _buildList())
+            else
+              _buildList(),
+          ],
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Row(
