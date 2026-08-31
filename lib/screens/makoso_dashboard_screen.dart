@@ -1,11 +1,95 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 
 import '../database/app_database.dart';
 import '../services/sync_service.dart';
-import 'company_selection_screen.dart';
+
+Uint8List? _decodeScanBytes(Object? value) {
+  if (value is Uint8List) return value;
+  if (value is List) {
+    try {
+      return Uint8List.fromList(
+        value.cast<num>().map((item) => item.toInt()).toList(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+  if (value is Map) return _decodeScanBytes(value['data']);
+  if (value is! String || value.trim().isEmpty) return null;
+
+  final encoded = value.trim();
+  if (RegExp(r'^(?:[0-9a-fA-F]{2})+$').hasMatch(encoded)) {
+    return Uint8List.fromList([
+      for (var index = 0; index < encoded.length; index += 2)
+        int.parse(encoded.substring(index, index + 2), radix: 16),
+    ]);
+  }
+  try {
+    final decoded = _decodeScanBytes(jsonDecode(encoded));
+    if (decoded != null) return decoded;
+  } catch (_) {}
+  try {
+    return base64Decode(encoded);
+  } catch (_) {
+    return null;
+  }
+}
+
+({String extension, String mimeType})? _scanFileType(
+  Uint8List bytes,
+  String fileName,
+) {
+  if (bytes.length >= 4 &&
+      bytes[0] == 0x25 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x44 &&
+      bytes[3] == 0x46) {
+    return (extension: '.pdf', mimeType: 'application/pdf');
+  }
+  if (bytes.length >= 8 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4E &&
+      bytes[3] == 0x47) {
+    return (extension: '.png', mimeType: 'image/png');
+  }
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xFF &&
+      bytes[1] == 0xD8 &&
+      bytes[2] == 0xFF) {
+    return (extension: '.jpg', mimeType: 'image/jpeg');
+  }
+  if (bytes.length >= 6) {
+    final signature = ascii.decode(bytes.sublist(0, 6), allowInvalid: true);
+    if (signature == 'GIF87a' || signature == 'GIF89a') {
+      return (extension: '.gif', mimeType: 'image/gif');
+    }
+  }
+  if (bytes.length >= 12 &&
+      ascii.decode(bytes.sublist(0, 4), allowInvalid: true) == 'RIFF' &&
+      ascii.decode(bytes.sublist(8, 12), allowInvalid: true) == 'WEBP') {
+    return (extension: '.webp', mimeType: 'image/webp');
+  }
+
+  return switch (path.extension(fileName).toLowerCase()) {
+    '.pdf' => (extension: '.pdf', mimeType: 'application/pdf'),
+    '.png' => (extension: '.png', mimeType: 'image/png'),
+    '.jpg' || '.jpeg' => (extension: '.jpg', mimeType: 'image/jpeg'),
+    '.gif' => (extension: '.gif', mimeType: 'image/gif'),
+    '.webp' => (extension: '.webp', mimeType: 'image/webp'),
+    '.bmp' => (extension: '.bmp', mimeType: 'image/bmp'),
+    _ => null,
+  };
+}
 
 class MakosoDashboardScreen extends StatefulWidget {
   const MakosoDashboardScreen({super.key});
@@ -21,6 +105,11 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
   int _pendingDepenses = 0;
   List<Map<String, Object?>> _pendingDepensesList = [];
   List<Map<String, Object?>> _dossiersEnSouffrance = [];
+
+  final _dossierSearchCtrl = TextEditingController();
+  bool _dossierSearching = false;
+  Map<String, Object?>? _dossierResult;
+  bool _dossierSearched = false;
 
   final _conteneurSearchCtrl = TextEditingController();
   bool _conteneurSearching = false;
@@ -45,6 +134,7 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
   @override
   void dispose() {
     _syncSub?.cancel();
+    _dossierSearchCtrl.dispose();
     _conteneurSearchCtrl.dispose();
     super.dispose();
   }
@@ -159,6 +249,122 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
     });
   }
 
+  Future<void> _searchDossier() async {
+    final query = _dossierSearchCtrl.text.trim();
+    if (query.isEmpty) return;
+    setState(() {
+      _dossierSearching = true;
+      _dossierResult = null;
+      _dossierSearched = false;
+    });
+    final result = await AppDatabase.instance.searchMakosoDossierDetails(query);
+    if (!mounted) return;
+    setState(() {
+      _dossierResult = result;
+      _dossierSearching = false;
+      _dossierSearched = true;
+    });
+  }
+
+  Future<void> _viewScanBl(Map<String, Object?> scan) async {
+    Uint8List? bytes = _decodeScanBytes(scan['scan']);
+    final filePath = scan['nom_fichier']?.toString().trim() ?? '';
+    if ((bytes == null || bytes.isEmpty) && filePath.isNotEmpty) {
+      final file = File(filePath);
+      if (await file.exists()) bytes = await file.readAsBytes();
+    }
+    if (bytes == null || bytes.isEmpty) {
+      final uuid = scan['uuid']?.toString() ?? '';
+      if (uuid.isNotEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              const SnackBar(
+                content: Text('Récupération du scan BL depuis le serveur...'),
+              ),
+            );
+        }
+        try {
+          final remoteData = await AppSyncService.instance.recoverScanBlData(
+            uuid,
+          );
+          bytes = _decodeScanBytes(remoteData);
+        } catch (error) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Impossible de récupérer le scan BL : $error'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+      }
+    }
+    if (!mounted) return;
+    if (bytes == null || bytes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Le scan BL est introuvable sur ce poste.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final storedName = filePath.replaceAll('\\', '/');
+    final fileName = storedName.isEmpty ? 'scan_bl' : path.basename(storedName);
+    final fileType = _scanFileType(bytes, fileName);
+    if (fileType == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ce scan n’est ni un PDF ni une image reconnue.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    try {
+      final cacheDirectory = await getTemporaryDirectory();
+      final uuid = scan['uuid']?.toString().replaceAll(
+            RegExp(r'[^a-zA-Z0-9_-]'),
+            '_',
+          ) ??
+          'scan_bl';
+      final scanFile = File(
+        path.join(cacheDirectory.path, '$uuid${fileType.extension}'),
+      );
+      await scanFile.writeAsBytes(bytes, flush: true);
+      final result = await OpenFilex.open(
+        scanFile.path,
+        type: fileType.mimeType,
+      );
+      if (!mounted) return;
+      if (result.type != ResultType.done) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.message.isEmpty
+                  ? 'Aucune application ne peut ouvrir ce scan.'
+                  : result.message,
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Impossible d’ouvrir le scan BL : $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -174,7 +380,7 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
               if (_syncInProgress) return;
               setState(() => _syncInProgress = true);
               final result = await AppSyncService.instance.synchronize();
-              if (!mounted) return;
+              if (!context.mounted) return;
               setState(
                   () => _syncInProgress = AppSyncService.instance.isRunning);
               ScaffoldMessenger.of(context)
@@ -236,6 +442,24 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
                             onValider: _validerDepense,
                             onRejeter: _rejeterDepense,
                           ),
+
+                        const SizedBox(height: 28),
+
+                        _SectionHeader(
+                          icon: Icons.folder_open_rounded,
+                          label: 'Recherche dossier par numéro BL',
+                          iconColor: const Color(0xFF0F766E),
+                          badgeColor: const Color(0xFFF0FDFA),
+                        ),
+                        const SizedBox(height: 12),
+                        _DossierSearchSection(
+                          controller: _dossierSearchCtrl,
+                          onSearch: _searchDossier,
+                          searching: _dossierSearching,
+                          result: _dossierResult,
+                          searched: _dossierSearched,
+                          onViewScan: _viewScanBl,
+                        ),
 
                         const SizedBox(height: 28),
 
@@ -460,10 +684,14 @@ class _EmptyState extends StatelessWidget {
         children: [
           Icon(icon, color: iconColor, size: 20),
           const SizedBox(width: 10),
-          Text(
-            message,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+          Flexible(
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              softWrap: true,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
         ],
@@ -970,6 +1198,422 @@ class _SouffranceChip extends StatelessWidget {
   }
 }
 
+// ─── Dossier Search Section ─────────────────────────────────────────────────
+
+class _DossierSearchSection extends StatelessWidget {
+  final TextEditingController controller;
+  final VoidCallback onSearch;
+  final bool searching;
+  final Map<String, Object?>? result;
+  final bool searched;
+  final Future<void> Function(Map<String, Object?>) onViewScan;
+
+  const _DossierSearchSection({
+    required this.controller,
+    required this.onSearch,
+    required this.searching,
+    required this.result,
+    required this.searched,
+    required this.onViewScan,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                textCapitalization: TextCapitalization.characters,
+                decoration: InputDecoration(
+                  hintText: 'Numéro BL',
+                  prefixIcon: const Icon(
+                    Icons.folder_outlined,
+                    color: Color(0xFF0F766E),
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+                onSubmitted: (_) => onSearch(),
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: searching ? null : onSearch,
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF0F766E),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                icon: searching
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.search_rounded),
+                label: const Text('Rechercher'),
+              ),
+            ),
+          ],
+        ),
+        if (searching) ...[
+          const SizedBox(height: 20),
+          const Center(child: CircularProgressIndicator()),
+        ] else if (searched && result == null) ...[
+          const SizedBox(height: 16),
+          const _EmptyState(
+            icon: Icons.folder_off_outlined,
+            message: 'Aucun dossier trouvé pour ce numéro BL.',
+          ),
+        ] else if (result != null) ...[
+          const SizedBox(height: 16),
+          _DossierSearchResult(result: result!, onViewScan: onViewScan),
+        ],
+      ],
+    );
+  }
+}
+
+class _DossierSearchResult extends StatelessWidget {
+  final Map<String, Object?> result;
+  final Future<void> Function(Map<String, Object?>) onViewScan;
+
+  const _DossierSearchResult({
+    required this.result,
+    required this.onViewScan,
+  });
+
+  static final _numberFormat = NumberFormat('#,##0.00', 'fr_FR');
+  static final _dateFormat = DateFormat('dd/MM/yyyy');
+
+  String _text(Map<String, Object?> row, String key) {
+    return row[key]?.toString().trim() ?? '';
+  }
+
+  String _date(Object? value) {
+    final raw = value?.toString().trim() ?? '';
+    if (raw.isEmpty) return '-';
+    try {
+      return _dateFormat.format(DateTime.parse(raw));
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  String _amount(Map<String, Object?> row) {
+    final amount = (row['montant'] as num?)?.toDouble();
+    if (amount == null) return '-';
+    final currency = _text(row, 'monnaie_sigle');
+    return '${_numberFormat.format(amount)} $currency'.trim();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dossier = Map<String, Object?>.from(
+      result['dossier'] as Map,
+    );
+    final depots = (result['depots'] as List)
+        .map((row) => Map<String, Object?>.from(row as Map))
+        .toList();
+    final depenses = (result['depenses'] as List)
+        .map((row) => Map<String, Object?>.from(row as Map))
+        .toList();
+    final conteneurs = (result['conteneurs'] as List)
+      .map((row) => Map<String, Object?>.from(row as Map))
+      .toList();
+    final scans = (result['scans'] as List)
+      .map((row) => Map<String, Object?>.from(row as Map))
+      .toList();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border.all(color: const Color(0xFF99F6E4)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 24,
+            runSpacing: 10,
+            children: [
+              _DossierDetailValue(
+                label: 'Numéro BL',
+                value: _text(dossier, 'numero_bl'),
+              ),
+              _DossierDetailValue(
+                label: 'Client',
+                value: _text(dossier, 'client_nom'),
+              ),
+              _DossierDetailValue(
+                label: 'Statut',
+                value: _text(dossier, 'statut'),
+              ),
+              _DossierDetailValue(
+                label: 'Marchandise',
+                value: _text(dossier, 'nature_marchandise'),
+              ),
+              _DossierDetailValue(
+                label: 'Port de chargement',
+                value: _text(dossier, 'port_chargement'),
+              ),
+              _DossierDetailValue(
+                label: 'Port de destination',
+                value: _text(dossier, 'port_destination'),
+              ),
+            ],
+          ),
+          const Divider(height: 28),
+          Row(
+            children: [
+              const Icon(
+                Icons.inventory_2_outlined,
+                size: 19,
+                color: Color(0xFF0F766E),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Conteneurs (${conteneurs.length})',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (conteneurs.isEmpty)
+            Text(
+              'Aucun conteneur lié.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: conteneurs.map((conteneur) {
+                final numero = _text(conteneur, 'numero_conteneur');
+                final dimension = _text(conteneur, 'dimension');
+                return Chip(
+                  avatar: const Icon(Icons.inventory_2_outlined, size: 16),
+                  label: Text(
+                    [numero.isEmpty ? '-' : numero, dimension]
+                        .where((value) => value.isNotEmpty)
+                        .join(' • '),
+                  ),
+                );
+              }).toList(),
+            ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              const Icon(
+                Icons.document_scanner_outlined,
+                size: 19,
+                color: Color(0xFF7C3AED),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Scans BL (${scans.length})',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (scans.isEmpty)
+            Text(
+              'Aucun scan BL lié.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            )
+          else
+            ...scans.map((scan) {
+              final storedName = _text(scan, 'nom_fichier');
+              final fileName = storedName.isEmpty
+                  ? 'Scan BL'
+                  : path.basename(storedName);
+              final page = (scan['page'] as num?)?.toInt();
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(
+                  Icons.description_outlined,
+                  color: Color(0xFF7C3AED),
+                ),
+                title: Text(fileName),
+                subtitle: Text(page == null ? 'Page non renseignée' : 'Page $page'),
+                trailing: IconButton(
+                  tooltip: 'Visualiser',
+                  onPressed: () => onViewScan(scan),
+                  icon: const Icon(Icons.visibility_outlined),
+                ),
+              );
+            }),
+          const Divider(height: 28),
+          _MovementList(
+            title: "Dépôts d'argent",
+            icon: Icons.account_balance_wallet_outlined,
+            color: const Color(0xFF2563EB),
+            rows: depots,
+            dateFor: (row) => _date(row['date_paiement']),
+            amountFor: _amount,
+            detailFor: (row) => _text(row, 'agent'),
+          ),
+          const SizedBox(height: 18),
+          _MovementList(
+            title: 'Dépenses',
+            icon: Icons.money_off_outlined,
+            color: const Color(0xFFDC2626),
+            rows: depenses,
+            dateFor: (row) => _date(row['date']),
+            amountFor: _amount,
+            detailFor: (row) =>
+                ((row['valide'] as num?)?.toInt() ?? 0) > 0
+                    ? 'Validée'
+                    : 'En attente',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DossierDetailValue extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DossierDetailValue({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 210,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.labelMedium),
+          const SizedBox(height: 2),
+          Text(
+            value.isEmpty ? '-' : value,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MovementList extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final List<Map<String, Object?>> rows;
+  final String Function(Map<String, Object?>) dateFor;
+  final String Function(Map<String, Object?>) amountFor;
+  final String Function(Map<String, Object?>) detailFor;
+
+  const _MovementList({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.rows,
+    required this.dateFor,
+    required this.amountFor,
+    required this.detailFor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 19, color: color),
+            const SizedBox(width: 8),
+            Text(
+              '$title (${rows.length})',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (rows.isEmpty)
+          Text(
+            'Aucun mouvement.',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          )
+        else
+          ...rows.map((row) {
+            final observation = row['observation']?.toString().trim() ?? '';
+            final detail = detailFor(row).trim();
+            return Container(
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: color.withAlpha(12),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: color.withAlpha(45)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 88, child: Text(dateFor(row))),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          row['libelle']?.toString().trim().isNotEmpty == true
+                              ? row['libelle'].toString()
+                              : '-',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        if (detail.isNotEmpty || observation.isNotEmpty)
+                          Text(
+                            [detail, observation]
+                                .where((value) => value.isNotEmpty)
+                                .join(' • '),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    amountFor(row),
+                    style: TextStyle(fontWeight: FontWeight.w700, color: color),
+                  ),
+                ],
+              ),
+            );
+          }),
+      ],
+    );
+  }
+}
+
 // ─── Conteneur Search Section ─────────────────────────────────────────────
 
 class _ConteneurSearchSection extends StatelessWidget {
@@ -1159,7 +1803,9 @@ class _ConteneurResultCard extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: statutBg,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: statutColor.withOpacity(0.4)),
+                      border: Border.all(
+                        color: statutColor.withValues(alpha: 0.4),
+                      ),
                     ),
                     child: Text(
                       statut,
@@ -1350,9 +1996,9 @@ class _CountBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

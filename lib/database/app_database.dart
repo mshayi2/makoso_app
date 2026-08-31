@@ -1808,6 +1808,92 @@ class AppDatabase {
     return smartDelete('depenses_makoso', where: 'uuid = ?', whereArgs: [uuid]);
   }
 
+  Future<Map<String, Object?>?> searchMakosoDossierDetails(
+    String numeroBl,
+  ) async {
+    final db = await initialize();
+    final query = numeroBl.trim();
+    if (query.isEmpty) return null;
+
+    final dossiers = await db.rawQuery(
+      '''
+      SELECT dos.*, c.nom AS client_nom
+      FROM dossiers dos
+      LEFT JOIN clients c ON c.uuid = dos.client_uuid AND c.id > 0
+      WHERE dos.id > 0 AND LOWER(COALESCE(dos.numero_bl, '')) LIKE LOWER(?)
+      ORDER BY
+        CASE WHEN LOWER(dos.numero_bl) = LOWER(?) THEN 0 ELSE 1 END,
+        COALESCE(dos.date_creation, '') DESC
+      LIMIT 1
+      ''',
+      ['%$query%', query],
+    );
+    if (dossiers.isEmpty) return null;
+
+    final dossier = Map<String, Object?>.from(dossiers.first);
+    final dossierUuid = dossier['uuid'] as String;
+    final results = await Future.wait([
+      db.rawQuery(
+        '''
+        SELECT da.*, m.nom AS monnaie_nom, m.sigle AS monnaie_sigle
+        FROM depot_argent_makoso da
+        LEFT JOIN monnaies m ON m.uuid = da.monnaie_uuid AND m.id > 0
+        WHERE da.id > 0 AND da.source_uuid = ?
+        ORDER BY COALESCE(da.date_paiement, '') DESC, ABS(da.id) DESC
+        ''',
+        [dossierUuid],
+      ),
+      db.rawQuery(
+        '''
+        SELECT dep.*, m.nom AS monnaie_nom, m.sigle AS monnaie_sigle,
+          COALESCE(u.nom_complet, u.nom_utilisateur) AS validateur_nom
+        FROM depenses_makoso dep
+        LEFT JOIN monnaies m ON m.uuid = dep.monnaie_uuid AND m.id > 0
+        LEFT JOIN utilisateurs u ON u.uuid = dep.validateur_uuid AND u.id > 0
+        WHERE dep.id > 0 AND dep.dossier_uuid = ?
+        ORDER BY COALESCE(dep.date, '') DESC, ABS(dep.id) DESC
+        ''',
+        [dossierUuid],
+      ),
+      db.rawQuery(
+        '''
+        SELECT uuid, numero_conteneur, dimension
+        FROM conteneurs
+        WHERE id > 0 AND dossier_uuid = ?
+        ORDER BY COALESCE(numero_conteneur, '') ASC
+        ''',
+        [dossierUuid],
+      ),
+      db.rawQuery(
+        '''
+        SELECT uuid, page, nom_fichier, scan
+        FROM scan_bl
+        WHERE id > 0 AND dossier_uuid = ?
+        ORDER BY COALESCE(page, 0) ASC, ABS(id) ASC
+        ''',
+        [dossierUuid],
+      ),
+    ]);
+
+    return {
+      'dossier': dossier,
+      'depots': results[0].map(Map<String, Object?>.from).toList(),
+      'depenses': results[1].map(Map<String, Object?>.from).toList(),
+      'conteneurs': results[2].map(Map<String, Object?>.from).toList(),
+      'scans': results[3].map(Map<String, Object?>.from).toList(),
+    };
+  }
+
+  Future<void> cacheScanBlData(String uuid, Object scanData) async {
+    final db = await initialize();
+    await db.update(
+      'scan_bl',
+      {'scan': scanData},
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
+  }
+
   /// Dossiers en souffrance according to deposit coverage rules.
   Future<List<Map<String, Object?>>> getDossiersEnSouffrance() async {
     final db = await initialize();

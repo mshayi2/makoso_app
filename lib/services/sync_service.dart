@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -84,6 +83,7 @@ class AppSyncService {
 
   static final AppSyncService instance = AppSyncService._();
   static const Duration _requestTimeout = Duration(seconds: 30);
+  static const Duration _scanRecoveryTimeout = Duration(minutes: 10);
 
   final AppDatabase _database = AppDatabase.instance;
   final http.Client _client;
@@ -134,6 +134,31 @@ class AppSyncService {
 
   void _emitNotification(SyncResult result) {
     _notificationsController.add(SyncNotification(result));
+  }
+
+  Future<Object?> recoverScanBlData(String uuid) async {
+    final states = await _database.getSyncTableStates();
+    final requestedStates = states
+        .map((state) => state['table_name'] == 'scan_bl'
+            ? <String, Object>{'table_name': 'scan_bl', 'sync': 0}
+            : state)
+        .toList();
+    final response = await _postJsonMap(
+      '/get_data',
+      {'tables': requestedStates},
+      timeout: _scanRecoveryTimeout,
+    );
+    final records = response['scan_bl'];
+    if (records is! List) return null;
+    for (final record in records) {
+      if (record is! Map || record['uuid']?.toString() != uuid) continue;
+      final scanData = record['scan'];
+      if (scanData != null) {
+        await _database.cacheScanBlData(uuid, scanData);
+      }
+      return scanData;
+    }
+    return null;
   }
 
   Future<int> _runPullPhase() async {
@@ -302,9 +327,11 @@ class AppSyncService {
   }
   Future<Map<String, dynamic>> _postJsonMap(
     String endpoint,
-    Map<String, Object?> payload,
+    Map<String, Object?> payload, {
+    Duration timeout = _requestTimeout,
+  }
   ) async {
-    final decoded = await _postJson(endpoint, payload);
+    final decoded = await _postJson(endpoint, payload, timeout: timeout);
     if (decoded is! Map) {
       throw const FormatException('Réponse JSON attendue au format objet.');
     }
@@ -324,14 +351,18 @@ class AppSyncService {
     return decoded;
   }
 
-  Future<Object?> _postJson(String endpoint, Map<String, Object?> payload) async {
+  Future<Object?> _postJson(
+    String endpoint,
+    Map<String, Object?> payload, {
+    Duration timeout = _requestTimeout,
+  }) async {
     final response = await _client
         .post(
           ApiConfig.uri(endpoint),
           headers: ApiConfig.defaultHeaders,
           body: jsonEncode(payload),
         )
-        .timeout(_requestTimeout);
+        .timeout(timeout);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException(
