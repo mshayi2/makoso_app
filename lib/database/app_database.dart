@@ -192,12 +192,17 @@ class AppDatabase {
   }
 
   Future<void> preparePulledScanBlRecord(Map<String, dynamic> record) async {
+    final scanBytes = decodeScanBlBytes(record['scan']);
+    if (scanBytes != null) {
+      record['scan'] = scanBytes;
+    }
     await preparePulledManagedDocument(
       record: record,
       folder: 'scan_bl',
       ownerTable: 'dossiers',
       ownerUuidColumn: 'dossier_uuid',
       ownerLabelColumn: 'numero_bl',
+      preserveScan: true,
     );
   }
 
@@ -231,11 +236,14 @@ class AppDatabase {
     required String ownerTable,
     required String ownerUuidColumn,
     required String ownerLabelColumn,
+    bool preserveScan = false,
   }) async {
     final fileName = path.basename(record['nom_fichier']?.toString() ?? '');
     final ownerUuid = record[ownerUuidColumn]?.toString() ?? '';
     if (fileName.isEmpty || ownerUuid.isEmpty) {
-      record['scan'] = null;
+      if (!preserveScan) {
+        record['scan'] = null;
+      }
       return;
     }
 
@@ -269,7 +277,9 @@ class AppDatabase {
     }
 
     record['nom_fichier'] = localPath;
-    record['scan'] = null;
+    if (!preserveScan) {
+      record['scan'] = null;
+    }
   }
 
   Future<List<Map<String, Object?>>> _getManagedDocuments({
@@ -307,12 +317,7 @@ class AppDatabase {
         fileName: path.basename(currentName),
       );
       final scanValue = row['scan'];
-      Uint8List? bytes;
-      if (scanValue is Uint8List) {
-        bytes = scanValue;
-      } else if (scanValue is List) {
-        bytes = Uint8List.fromList(List<int>.from(scanValue));
-      }
+      final bytes = decodeScanBlBytes(scanValue);
       if (bytes != null &&
           bytes.isNotEmpty &&
           !await File(localPath).exists()) {
@@ -1666,27 +1671,25 @@ class AppDatabase {
         fileName: path.basename(currentName),
       );
       final scanValue = row['scan'];
-      Uint8List? bytes;
-      if (scanValue is Uint8List) {
-        bytes = scanValue;
-      } else if (scanValue is List) {
-        bytes = Uint8List.fromList(List<int>.from(scanValue));
-      }
+      final bytes = decodeScanBlBytes(scanValue);
       if (bytes != null &&
           bytes.isNotEmpty &&
           !await File(localPath).exists()) {
         await Directory(path.dirname(localPath)).create(recursive: true);
         await File(localPath).writeAsBytes(bytes, flush: true);
       }
-      if (currentName != localPath || scanValue != null) {
+      if (currentName != localPath ||
+          (bytes != null && scanValue is! Uint8List)) {
         await db.update(
           'scan_bl',
-          {'nom_fichier': localPath, 'scan': null},
+          {'nom_fichier': localPath, if (bytes != null) 'scan': bytes},
           where: 'uuid = ?',
           whereArgs: [row['uuid']],
         );
         row['nom_fichier'] = localPath;
-        row['scan'] = null;
+      }
+      if (bytes != null) {
+        row['scan'] = bytes;
       }
       migratedRows.add(row);
     }
@@ -1705,6 +1708,16 @@ class AppDatabase {
       'nom_fichier': nomFichier,
       'page': page,
     });
+  }
+
+  Future<void> cacheScanBlBytes(String uuid, Uint8List bytes) async {
+    final db = await initialize();
+    await db.update(
+      'scan_bl',
+      {'scan': bytes},
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
   }
 
   Future<void> deleteScanBl(String uuid) async {

@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
+import 'package:printing/printing.dart';
 
 import '../database/app_database.dart';
 import '../models/client.dart';
@@ -14,6 +16,7 @@ import '../models/dossier.dart';
 import '../models/interchange.dart';
 import '../models/scan_bl.dart';
 import '../models/utilisateur.dart';
+import '../services/sync_service.dart';
 import '../widgets/horizontal_table_scroller.dart';
 
 const List<String> _kStatuts = ['En attente', 'En cours', 'Clôturé', 'Annulé'];
@@ -1713,10 +1716,15 @@ class _DossiersScreenState extends State<DossiersScreen> {
 
   // ── Scan BL dialog ────────────────────────────────────────────────────────
 
-  Future<void> _viewLocalDocument(String? filePath) async {
-    if (filePath == null ||
-        filePath.isEmpty ||
-        !await File(filePath).exists()) {
+  Future<void> _viewLocalDocument(
+    String? filePath, {
+    Uint8List? fallbackBytes,
+  }) async {
+    final hasLocalFile = filePath != null &&
+        filePath.isNotEmpty &&
+        await File(filePath).exists();
+    final hasFallback = fallbackBytes != null && fallbackBytes.isNotEmpty;
+    if (!hasLocalFile && !hasFallback) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1728,8 +1736,42 @@ class _DossiersScreenState extends State<DossiersScreen> {
       return;
     }
 
-    final extension = path.extension(filePath).toLowerCase();
-    if (extension != '.pdf') {
+    final fileName = filePath == null || filePath.isEmpty
+        ? 'Scan BL'
+        : path.basename(filePath);
+    final extension = path.extension(fileName).toLowerCase();
+    final blobIsPdf = hasFallback &&
+      fallbackBytes.length >= 4 &&
+      fallbackBytes[0] == 0x25 &&
+      fallbackBytes[1] == 0x50 &&
+      fallbackBytes[2] == 0x44 &&
+      fallbackBytes[3] == 0x46;
+    final isPdf = extension == '.pdf' || blobIsPdf;
+
+    if (isPdf) {
+      final pdfBytes = hasFallback
+          ? fallbackBytes
+          : await File(filePath!).readAsBytes();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => Dialog(
+          child: SizedBox(
+            width: 900,
+            height: 650,
+            child: PdfPreview(
+              build: (_) async => pdfBytes,
+              pdfFileName: fileName,
+              canChangePageFormat: false,
+              canChangeOrientation: false,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (!isPdf) {
       if (!mounted) return;
       await showDialog<void>(
         context: context,
@@ -1740,7 +1782,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
             child: Column(
               children: [
                 ListTile(
-                  title: Text(path.basename(filePath)),
+                  title: Text(fileName),
                   trailing: IconButton(
                     tooltip: 'Fermer',
                     onPressed: () => Navigator.pop(ctx),
@@ -1753,8 +1795,10 @@ class _DossiersScreenState extends State<DossiersScreen> {
                     minScale: 0.5,
                     maxScale: 5,
                     child: Center(
-                      child: Image.file(
-                        File(filePath),
+                      child: Image(
+                        image: hasLocalFile
+                          ? FileImage(File(filePath))
+                          : MemoryImage(fallbackBytes!),
                         fit: BoxFit.contain,
                         errorBuilder: (_, error, stackTrace) =>
                             const Text('Impossible d’afficher cette image.'),
@@ -1770,23 +1814,47 @@ class _DossiersScreenState extends State<DossiersScreen> {
       return;
     }
 
+  }
+
+  Future<void> _viewScanBl(ScanBl scanBl) async {
+    final filePath = scanBl.nomFichier;
+    final hasLocalFile = filePath != null &&
+        filePath.isNotEmpty &&
+        await File(filePath).exists();
+    if (hasLocalFile || (scanBl.scan?.isNotEmpty ?? false)) {
+      await _viewLocalDocument(filePath, fallbackBytes: scanBl.scan);
+      return;
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Récupération du scan depuis le serveur...')),
+      );
+    }
+
     try {
-      if (Platform.isWindows) {
-        await Process.start('explorer.exe', [filePath]);
-      } else if (Platform.isMacOS) {
-        await Process.start('open', [filePath]);
-      } else if (Platform.isLinux) {
-        await Process.start('xdg-open', [filePath]);
-      }
-    } catch (error) {
-      if (mounted) {
+      final bytes = await AppSyncService.instance.recoverScanBlBytes(
+        scanBl.uuid,
+      );
+      if (!mounted) return;
+      if (bytes == null || bytes.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Impossible d’ouvrir le PDF : $error'),
+          const SnackBar(
+            content: Text('Le scan est introuvable sur ce poste et sur le serveur.'),
             backgroundColor: Colors.red,
           ),
         );
+        return;
       }
+      await _viewLocalDocument(filePath, fallbackBytes: bytes);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Impossible de récupérer le scan : $error'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -2065,9 +2133,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
                                                   ),
                                                   tooltip: 'Visualiser',
                                                   onPressed: () =>
-                                                      _viewLocalDocument(
-                                                        s.nomFichier,
-                                                      ),
+                                                      _viewScanBl(s),
                                                 ),
                                                 IconButton(
                                                   icon: const Icon(
