@@ -1,14 +1,40 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'makoso_dashboard_screen.dart';
 import 'marina_dashboard_screen.dart';
 
 enum AppCompany { makoso, marinaTrans }
 
-class CompanySelectionScreen extends StatelessWidget {
+class CompanySelectionScreen extends StatefulWidget {
   const CompanySelectionScreen({super.key});
+
+  @override
+  State<CompanySelectionScreen> createState() => _CompanySelectionScreenState();
+}
+
+class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
+  static const _validAccessCodes = {'A2525', 'B2525'};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _showAccessCodeDialog();
+      }
+    });
+  }
+
+  Future<void> _showAccessCodeDialog() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const _AccessCodeDialog(validCodes: _validAccessCodes),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,17 +46,14 @@ class CompanySelectionScreen extends StatelessWidget {
           Image.asset(
             'assets/images/login_bg.jpg',
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(
-              color: const Color(0xFF1A237E),
-            ),
+            errorBuilder: (_, __, ___) =>
+                Container(color: const Color(0xFF1A237E)),
           ),
 
           // Blur overlay
           BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-            child: Container(
-              color: Colors.black.withValues(alpha: 0.55),
-            ),
+            child: Container(color: Colors.black.withValues(alpha: 0.55)),
           ),
 
           Center(
@@ -45,10 +68,15 @@ class CompanySelectionScreen extends StatelessWidget {
                     color: Colors.white.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.3), width: 1.5),
+                      color: Colors.white.withValues(alpha: 0.3),
+                      width: 1.5,
+                    ),
                   ),
-                  child: const Icon(Icons.business_rounded,
-                      size: 44, color: Colors.white),
+                  child: const Icon(
+                    Icons.business_rounded,
+                    size: 44,
+                    color: Colors.white,
+                  ),
                 ),
                 const SizedBox(height: 20),
                 const Text(
@@ -99,7 +127,8 @@ class CompanySelectionScreen extends StatelessWidget {
                             Color(0xFF14532D),
                             Color(0xFF16A34A),
                           ],
-                          onTap: () => _navigate(context, AppCompany.marinaTrans),
+                          onTap: () =>
+                              _navigate(context, AppCompany.marinaTrans),
                         ),
                       ),
                     ],
@@ -120,6 +149,70 @@ class CompanySelectionScreen extends StatelessWidget {
         builder: (_) => company == AppCompany.marinaTrans
             ? const MarinaDashboardScreen()
             : const MakosoDashboardScreen(),
+      ),
+    );
+  }
+}
+
+class _AccessCodeDialog extends StatefulWidget {
+  final Set<String> validCodes;
+
+  const _AccessCodeDialog({required this.validCodes});
+
+  @override
+  State<_AccessCodeDialog> createState() => _AccessCodeDialogState();
+}
+
+class _AccessCodeDialogState extends State<_AccessCodeDialog> {
+  final TextEditingController _controller = TextEditingController();
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _validateCode() {
+    final code = _controller.text.trim().toUpperCase();
+    if (widget.validCodes.contains(code)) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() => _errorText = 'Code d’accès incorrect.');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: AlertDialog(
+        title: const Text('Code d’accès'),
+        content: TextField(
+          controller: _controller,
+          autofocus: true,
+          maxLength: 5,
+          textCapitalization: TextCapitalization.characters,
+          inputFormatters: [
+            LengthLimitingTextInputFormatter(5),
+            FilteringTextInputFormatter.allow(RegExp('[A-Za-z0-9]')),
+          ],
+          decoration: InputDecoration(
+            labelText: 'Saisissez votre code',
+            errorText: _errorText,
+            counterText: '',
+            border: const OutlineInputBorder(),
+          ),
+          onChanged: (_) {
+            if (_errorText != null) {
+              setState(() => _errorText = null);
+            }
+          },
+          onSubmitted: (_) => _validateCode(),
+        ),
+        actions: [
+          FilledButton(onPressed: _validateCode, child: const Text('Valider')),
+        ],
       ),
     );
   }
@@ -172,7 +265,8 @@ class _CompanyCardState extends State<_CompanyCard> {
             boxShadow: [
               BoxShadow(
                 color: widget.gradientColors.last.withValues(
-                    alpha: _hovered ? 0.6 : 0.35),
+                  alpha: _hovered ? 0.6 : 0.35,
+                ),
                 blurRadius: _hovered ? 28 : 16,
                 offset: const Offset(0, 8),
               ),
@@ -222,8 +316,11 @@ class _CompanyCardState extends State<_CompanyCard> {
                       ),
                     ),
                     const SizedBox(width: 4),
-                    Icon(Icons.arrow_forward_rounded,
-                        color: Colors.white.withValues(alpha: 0.9), size: 16),
+                    Icon(
+                      Icons.arrow_forward_rounded,
+                      color: Colors.white.withValues(alpha: 0.9),
+                      size: 16,
+                    ),
                   ],
                 ),
               ],

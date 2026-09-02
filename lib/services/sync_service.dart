@@ -101,7 +101,9 @@ class AppSyncService {
 
   Future<SyncResult> synchronize() async {
     if (_isRunning) {
-      final result = SyncResult.skipped('Une synchronisation est déjà en cours.');
+      final result = SyncResult.skipped(
+        'Une synchronisation est déjà en cours.',
+      );
       _emitNotification(result);
       return result;
     }
@@ -139,15 +141,15 @@ class AppSyncService {
   Future<Object?> recoverScanBlData(String uuid) async {
     final states = await _database.getSyncTableStates();
     final requestedStates = states
-        .map((state) => state['table_name'] == 'scan_bl'
-            ? <String, Object>{'table_name': 'scan_bl', 'sync': 0}
-            : state)
+        .map(
+          (state) => state['table_name'] == 'scan_bl'
+              ? <String, Object>{'table_name': 'scan_bl', 'sync': 0}
+              : state,
+        )
         .toList();
-    final response = await _postJsonMap(
-      '/get_data',
-      {'tables': requestedStates},
-      timeout: _scanRecoveryTimeout,
-    );
+    final response = await _postJsonMap('/get_data', {
+      'tables': requestedStates,
+    }, timeout: _scanRecoveryTimeout);
     final records = response['scan_bl'];
     if (records is! List) return null;
     for (final record in records) {
@@ -162,9 +164,7 @@ class AppSyncService {
   }
 
   Future<int> _runPullPhase() async {
-    final payload = {
-      'tables': await _database.getSyncTableStates(),
-    };
+    final payload = {'tables': await _database.getSyncTableStates()};
     final response = await _postJsonMap('/get_data', payload);
 
     var appliedChanges = 0;
@@ -180,9 +180,7 @@ class AppSyncService {
         }
 
         final record = Map<String, dynamic>.from(
-          rawRecord.map(
-            (key, value) => MapEntry(key.toString(), value),
-          ),
+          rawRecord.map((key, value) => MapEntry(key.toString(), value)),
         );
 
         if (table == 'interchange') {
@@ -206,7 +204,10 @@ class AppSyncService {
     return appliedChanges;
   }
 
-  Future<int> _applyPullRecord(String table, Map<String, dynamic> record) async {
+  Future<int> _applyPullRecord(
+    String table,
+    Map<String, dynamic> record,
+  ) async {
     final action = record['action']?.toString().trim();
     if (action == null || action.isEmpty || action == 'I') {
       await _database.upsertSyncRecord(table, record);
@@ -254,7 +255,9 @@ class AppSyncService {
     var deletedCount = 0;
 
     for (final table in AppDatabase.syncTables) {
-      if (table == 'interchange') continue; // handled separately after other tables
+      if (table == 'interchange') {
+        continue; // handled separately after other tables
+      }
 
       final pendingRecords = await _database.getPendingSyncRecords(table);
       if (pendingRecords.isEmpty) {
@@ -264,10 +267,7 @@ class AppSyncService {
       final outboundRecords = pendingRecords
           .map((record) => Map<String, Object?>.from(record))
           .toList();
-      final payload = {
-        'table_name': table,
-        'records': outboundRecords,
-      };
+      final payload = {'table_name': table, 'records': outboundRecords};
       debugPrint('[Sync][POST_DATA][$table] ${jsonEncode(payload)}');
       final response = await _postJsonList('/post_data', payload);
       final sentByUuid = <String, Map<String, Object?>>{
@@ -282,9 +282,7 @@ class AppSyncService {
         }
 
         final record = Map<String, dynamic>.from(
-          rawRecord.map(
-            (key, value) => MapEntry(key.toString(), value),
-          ),
+          rawRecord.map((key, value) => MapEntry(key.toString(), value)),
         );
         final uuid = record['uuid']?.toString();
         if (uuid == null || uuid.isEmpty) {
@@ -325,19 +323,23 @@ class AppSyncService {
       deletedCount: deletedCount,
     );
   }
+
   Future<Map<String, dynamic>> _postJsonMap(
     String endpoint,
     Map<String, Object?> payload, {
+    Map<String, String> headers = ApiConfig.defaultHeaders,
     Duration timeout = _requestTimeout,
-  }
-  ) async {
-    final decoded = await _postJson(endpoint, payload, timeout: timeout);
+  }) async {
+    final decoded = await _postJson(
+      endpoint,
+      payload,
+      headers: headers,
+      timeout: timeout,
+    );
     if (decoded is! Map) {
       throw const FormatException('Réponse JSON attendue au format objet.');
     }
-    return decoded.map(
-      (key, value) => MapEntry(key.toString(), value),
-    );
+    return decoded.map((key, value) => MapEntry(key.toString(), value));
   }
 
   Future<List<dynamic>> _postJsonList(
@@ -354,12 +356,13 @@ class AppSyncService {
   Future<Object?> _postJson(
     String endpoint,
     Map<String, Object?> payload, {
+    Map<String, String> headers = ApiConfig.defaultHeaders,
     Duration timeout = _requestTimeout,
   }) async {
     final response = await _client
         .post(
           ApiConfig.uri(endpoint),
-          headers: ApiConfig.defaultHeaders,
+          headers: headers,
           body: jsonEncode(payload),
         )
         .timeout(timeout);
@@ -390,7 +393,9 @@ class AppSyncService {
           'page': page,
         },
       );
-      final response = await _client.get(uri).timeout(_requestTimeout);
+      final response = await _client
+          .get(uri, headers: ApiConfig.authorizationHeaders)
+          .timeout(_requestTimeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         debugPrint('[Sync][GET_INTERCHANGE] HTTP ${response.statusCode}');
         return null;
@@ -418,7 +423,7 @@ class AppSyncService {
         final request = http.MultipartRequest(
           'POST',
           ApiConfig.uri('/post_interchange'),
-        )..headers['Accept'] = 'application/json';
+        )..headers.addAll(ApiConfig.authorizationHeaders);
 
         for (final entry in sentRecord.entries) {
           if (entry.key == 'scan') continue;
@@ -446,7 +451,9 @@ class AppSyncService {
         final response = await http.Response.fromStream(streamed);
 
         if (response.statusCode < 200 || response.statusCode >= 300) {
-          debugPrint('[Sync][POST_INTERCHANGE][$uuid] HTTP ${response.statusCode}: ${response.body}');
+          debugPrint(
+            '[Sync][POST_INTERCHANGE][$uuid] HTTP ${response.statusCode}: ${response.body}',
+          );
           continue;
         }
 
@@ -455,7 +462,8 @@ class AppSyncService {
           continue;
         }
 
-        final shouldUpdateSync = localSync == 0 || (localId > 0 && localSync < 0);
+        final shouldUpdateSync =
+            localSync == 0 || (localId > 0 && localSync < 0);
         if (shouldUpdateSync) {
           final decoded = jsonDecode(response.body);
           if (decoded is Map) {
