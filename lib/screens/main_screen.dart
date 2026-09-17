@@ -511,7 +511,7 @@ class _MainScreenState extends State<MainScreen> {
           // ── Left panel ────────────────────────────────────────────────────
           Expanded(
             flex: 27,
-            child: Container(
+            child: Material(
               color: sidebarBg,
               child: Column(
                 children: [
@@ -658,30 +658,27 @@ class _MainScreenState extends State<MainScreen> {
                         return true;
                       }).map((item) {
                         final isSelected = _selected == item.option;
-                        return Container(
-                          color: isSelected
-                              ? Colors.white24
-                              : Colors.transparent,
-                          child: ListTile(
-                            leading: Icon(
-                              item.icon,
+                        return ListTile(
+                          tileColor:
+                              isSelected ? Colors.white24 : Colors.transparent,
+                          leading: Icon(
+                            item.icon,
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.white70,
+                          ),
+                          title: Text(
+                            item.label,
+                            style: TextStyle(
                               color: isSelected
                                   ? Colors.white
                                   : Colors.white70,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
                             ),
-                            title: Text(
-                              item.label,
-                              style: TextStyle(
-                                color: isSelected
-                                    ? Colors.white
-                                    : Colors.white70,
-                                fontWeight: isSelected
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                            onTap: () => _selectOption(item.option),
                           ),
+                          onTap: () => _selectOption(item.option),
                         );
                       }).toList(),
                     ),
