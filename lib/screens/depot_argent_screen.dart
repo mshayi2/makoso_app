@@ -67,14 +67,18 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   List<Monnaie> _monnaies = [];
   List<DepotSourceOption> _sources = [];
   List<DepotArgentRecord> _depots = [];
+  List<Map<String, Object?>> _totalsByCurrency = [];
 
   String get _depotTable => widget.company == AppCompany.marian
       ? 'depot_argent_marina_trans'
       : 'depot_argent_makoso';
 
   String get _sourceFieldLabel {
-    if (_selectedLibelle == 'Voyage camion' || _selectedLibelle == 'Retour Camion avec Charge') return 'Voyage *';
-    if (_selectedLibelle != null && _selectedLibelle!.isNotEmpty) return 'Dossier *';
+    if (_selectedLibelle == 'Voyage camion' ||
+        _selectedLibelle == 'Retour Camion avec Charge')
+      return 'Voyage *';
+    if (_selectedLibelle != null && _selectedLibelle!.isNotEmpty)
+      return 'Dossier *';
     return 'Source *';
   }
 
@@ -118,18 +122,26 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
     final targetPage = resetPage ? 0 : (page ?? _currentPage);
     setState(() => _isGridLoading = true);
     final search = _searchCtrl.text;
-    final total = await AppDatabase.instance.getDepotArgentCount(
-      table: _depotTable,
-      search: search,
-    );
+    final summaryResults = await Future.wait([
+      AppDatabase.instance.getDepotArgentCount(
+        table: _depotTable,
+        search: search,
+      ),
+      AppDatabase.instance.getDepotArgentTotalsByCurrency(
+        table: _depotTable,
+        search: search,
+      ),
+    ]);
+    final total = summaryResults[0] as int;
+    final totalsByCurrency = summaryResults[1] as List<Map<String, Object?>>;
     final maxPage = total <= 0 ? 0 : (total - 1) ~/ _kDepotPageSize;
     final safePage = total <= 0
         ? 0
         : targetPage < 0
-            ? 0
-            : targetPage > maxPage
-                ? maxPage
-                : targetPage;
+        ? 0
+        : targetPage > maxPage
+        ? maxPage
+        : targetPage;
     final records = await AppDatabase.instance.getDepotArgentRecords(
       table: _depotTable,
       search: search,
@@ -141,6 +153,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
       _currentPage = safePage;
       _totalRows = total;
       _depots = records;
+      _totalsByCurrency = totalsByCurrency;
       _isGridLoading = false;
     });
   }
@@ -199,7 +212,9 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final montant = double.tryParse(_montantCtrl.text.trim().replaceAll(',', '.'));
+    final montant = double.tryParse(
+      _montantCtrl.text.trim().replaceAll(',', '.'),
+    );
     if (montant == null) return;
 
     setState(() => _isSaving = true);
@@ -235,7 +250,11 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(isEditing ? 'Dépôt modifié avec succès.' : 'Dépôt ajouté avec succès.'),
+            content: Text(
+              isEditing
+                  ? 'Dépôt modifié avec succès.'
+                  : 'Dépôt ajouté avec succès.',
+            ),
           ),
         );
       }
@@ -273,7 +292,9 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
     _formKey.currentState?.reset();
     setState(() {
       _editingDepot = null;
-      _selectedLibelle = widget.company == AppCompany.marian ? 'Voyage camion' : null;
+      _selectedLibelle = widget.company == AppCompany.marian
+          ? 'Voyage camion'
+          : null;
       _selectedMonnaieUuid = null;
       _selectedSourceUuid = null;
       _sources = [];
@@ -292,11 +313,19 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Supprimer le dépôt'),
-        content: Text('Voulez-vous vraiment supprimer le dépôt "${depot.libelle ?? depot.uuid}" ?'),
+        content: Text(
+          'Voulez-vous vraiment supprimer le dépôt "${depot.libelle ?? depot.uuid}" ?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Supprimer'),
           ),
@@ -306,12 +335,15 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
 
     if (confirmed != true) return;
     if (_editingDepot?.uuid == depot.uuid) _cancelEdit();
-    await AppDatabase.instance.deleteDepotArgent(depot.uuid, table: _depotTable);
+    await AppDatabase.instance.deleteDepotArgent(
+      depot.uuid,
+      table: _depotTable,
+    );
     await _loadGrid();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Dépôt supprimé.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Dépôt supprimé.')));
     }
   }
 
@@ -335,10 +367,12 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                   prefixIcon: Icon(Icons.list_alt_outlined),
                 ),
                 items: _libelles
-                    .map((libelle) => DropdownMenuItem(
-                          value: libelle,
-                          child: Text(libelle, overflow: TextOverflow.ellipsis),
-                        ))
+                    .map(
+                      (libelle) => DropdownMenuItem(
+                        value: libelle,
+                        child: Text(libelle, overflow: TextOverflow.ellipsis),
+                      ),
+                    )
                     .toList(),
                 validator: (value) => value == null ? 'Champ requis' : null,
                 onChanged: (value) async {
@@ -374,7 +408,8 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                     )
                     .toList(),
                 validator: (value) => value == null ? 'Champ requis' : null,
-                onChanged: (value) => setState(() => _selectedSourceUuid = value),
+                onChanged: (value) =>
+                    setState(() => _selectedSourceUuid = value),
               ),
             ),
             SizedBox(
@@ -395,7 +430,8 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                     )
                     .toList(),
                 validator: (value) => value == null ? 'Champ requis' : null,
-                onChanged: (value) => setState(() => _selectedMonnaieUuid = value),
+                onChanged: (value) =>
+                    setState(() => _selectedMonnaieUuid = value),
               ),
             ),
             SizedBox(
@@ -407,10 +443,14 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.attach_money),
                 ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) return 'Champ requis';
-                  if (double.tryParse(value.trim().replaceAll(',', '.')) == null) {
+                  if (value == null || value.trim().isEmpty)
+                    return 'Champ requis';
+                  if (double.tryParse(value.trim().replaceAll(',', '.')) ==
+                      null) {
                     return 'Nombre invalide';
                   }
                   return null;
@@ -430,7 +470,8 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                   suffixIcon: _datePaiementCtrl.text.isNotEmpty
                       ? IconButton(
                           icon: const Icon(Icons.clear),
-                          onPressed: () => setState(() => _datePaiementCtrl.clear()),
+                          onPressed: () =>
+                              setState(() => _datePaiementCtrl.clear()),
                         )
                       : null,
                 ),
@@ -472,15 +513,25 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1A237E),
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
                     ),
                     icon: _isSaving
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
                           )
-                        : Icon(_editingDepot != null ? Icons.save_outlined : Icons.add),
+                        : Icon(
+                            _editingDepot != null
+                                ? Icons.save_outlined
+                                : Icons.add,
+                          ),
                     label: Text(_editingDepot != null ? 'Modifier' : 'Ajouter'),
                   ),
                   if (_editingDepot != null)
@@ -499,9 +550,13 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   }
 
   Widget _buildPaginationBar() {
-    final totalPages = _totalRows == 0 ? 1 : ((_totalRows - 1) ~/ _kDepotPageSize) + 1;
+    final totalPages = _totalRows == 0
+        ? 1
+        : ((_totalRows - 1) ~/ _kDepotPageSize) + 1;
     final start = _totalRows == 0 ? 0 : (_currentPage * _kDepotPageSize) + 1;
-    final end = _totalRows == 0 ? 0 : (_currentPage * _kDepotPageSize) + _depots.length;
+    final end = _totalRows == 0
+        ? 0
+        : (_currentPage * _kDepotPageSize) + _depots.length;
 
     return Row(
       children: [
@@ -517,20 +572,45 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
         const SizedBox(width: 8),
         IconButton(
           tooltip: 'Page précédente',
-          onPressed: _currentPage > 0 && !_isGridLoading ? () => _loadGrid(page: _currentPage - 1) : null,
+          onPressed: _currentPage > 0 && !_isGridLoading
+              ? () => _loadGrid(page: _currentPage - 1)
+              : null,
           icon: const Icon(Icons.chevron_left),
         ),
         IconButton(
           tooltip: 'Page suivante',
-          onPressed: end < _totalRows && !_isGridLoading ? () => _loadGrid(page: _currentPage + 1) : null,
+          onPressed: end < _totalRows && !_isGridLoading
+              ? () => _loadGrid(page: _currentPage + 1)
+              : null,
           icon: const Icon(Icons.chevron_right),
         ),
       ],
     );
   }
 
+  Widget _buildDepotSummary() {
+    final totals = _totalsByCurrency
+        .map((row) {
+          final currency =
+              row['monnaie_sigle']?.toString().trim().isNotEmpty == true
+              ? row['monnaie_sigle'].toString()
+              : row['monnaie_nom']?.toString() ?? '-';
+          final total = (row['total'] as num?)?.toDouble() ?? 0;
+          return '$currency : ${total.toStringAsFixed(2)}';
+        })
+        .join('   |   ');
+
+    return Text(
+      totals.isEmpty
+          ? 'Total : $_totalRows dépôts'
+          : 'Total : $_totalRows dépôts   |   $totals',
+      style: const TextStyle(fontWeight: FontWeight.w600),
+    );
+  }
+
   Widget _buildFormCard() {
-    final canCollapse = widget.company == AppCompany.makoso ||
+    final canCollapse =
+        widget.company == AppCompany.makoso ||
         widget.company == AppCompany.marian;
     return Card(
       elevation: 2,
@@ -548,14 +628,22 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                 child: Row(
                   children: [
                     Icon(
-                      _editingDepot != null ? Icons.edit_outlined : Icons.account_balance_wallet_outlined,
+                      _editingDepot != null
+                          ? Icons.edit_outlined
+                          : Icons.account_balance_wallet_outlined,
                       color: const Color(0xFF1A237E),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _editingDepot != null ? 'Modifier un dépôt d\'argent' : 'Ajouter un dépôt d\'argent',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
+                        _editingDepot != null
+                            ? 'Modifier un dépôt d\'argent'
+                            : 'Ajouter un dépôt d\'argent',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A237E),
+                        ),
                       ),
                     ),
                     if (canCollapse)
@@ -578,7 +666,8 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   }
 
   Widget _buildGridCard() {
-    final canCollapse = widget.company == AppCompany.makoso ||
+    final canCollapse =
+        widget.company == AppCompany.makoso ||
         widget.company == AppCompany.marian;
     return Card(
       elevation: 2,
@@ -589,7 +678,8 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
           children: [
             InkWell(
               onTap: canCollapse
-                  ? () => setState(() => _isHistoryExpanded = !_isHistoryExpanded)
+                  ? () =>
+                        setState(() => _isHistoryExpanded = !_isHistoryExpanded)
                   : null,
               child: Row(
                 children: [
@@ -598,12 +688,18 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                   const Expanded(
                     child: Text(
                       'Historique des dépôts',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1A237E),
+                      ),
                     ),
                   ),
                   if (canCollapse)
                     Icon(
-                      _isHistoryExpanded ? Icons.expand_less : Icons.expand_more,
+                      _isHistoryExpanded
+                          ? Icons.expand_less
+                          : Icons.expand_more,
                       color: const Color(0xFF1A237E),
                     ),
                 ],
@@ -612,89 +708,114 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
             if (!canCollapse || _isHistoryExpanded) ...[
               const Divider(height: 24),
               Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchCtrl,
-                    onChanged: (_) => _loadGrid(resetPage: true),
-                    decoration: InputDecoration(
-                      hintText: 'Rechercher...',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _searchCtrl.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                setState(() => _searchCtrl.clear());
-                                _loadGrid(resetPage: true);
-                              },
-                            )
-                          : null,
-                      border: const OutlineInputBorder(),
-                      isDense: true,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchCtrl,
+                      onChanged: (_) => _loadGrid(resetPage: true),
+                      decoration: InputDecoration(
+                        hintText: 'Rechercher...',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchCtrl.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  setState(() => _searchCtrl.clear());
+                                  _loadGrid(resetPage: true);
+                                },
+                              )
+                            : null,
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
               ),
               const SizedBox(height: 12),
               _buildPaginationBar(),
               const SizedBox(height: 12),
               if (_isGridLoading)
-                const Expanded(child: Center(child: CircularProgressIndicator()))
+                const Expanded(
+                  child: Center(child: CircularProgressIndicator()),
+                )
               else if (_depots.isEmpty)
-                const Expanded(child: Center(child: Text('Aucun dépôt trouvé.')))
+                const Expanded(
+                  child: Center(child: Text('Aucun dépôt trouvé.')),
+                )
               else
                 Expanded(
                   child: HorizontalTableScroller(
+                    toolbarLeading: widget.company == AppCompany.makoso
+                        ? _buildDepotSummary()
+                        : null,
                     child: VerticalTableScroller(
                       child: DataTable(
-                      headingRowColor: WidgetStateProperty.all(const Color(0xFF1A237E).withValues(alpha: 0.08)),
-                      columnSpacing: 20,
-                      columns: const [
-                        DataColumn(label: Text('Actions')),
-                        DataColumn(label: Text('Date')),
-                        DataColumn(label: Text('Libellé')),
-                        DataColumn(label: Text('Source')),
-                        DataColumn(label: Text('Montant')),
-                        DataColumn(label: Text('Monnaie')),
-                        DataColumn(label: Text('Agent')),
-                        DataColumn(label: Text('Observation')),
-                      ],
-                      rows: _depots.map((depot) {
-                        final isEditing = _editingDepot?.uuid == depot.uuid;
-                        return DataRow(
-                          color: WidgetStateProperty.resolveWith(
-                            (states) => isEditing ? const Color(0xFF1A237E).withValues(alpha: 0.06) : null,
-                          ),
-                          cells: [
-                            DataCell(
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.edit_outlined, color: Color(0xFF1A237E)),
-                                    tooltip: 'Modifier',
-                                    onPressed: () => _startEdit(depot),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                    tooltip: 'Supprimer',
-                                    onPressed: () => _confirmDelete(depot),
-                                  ),
-                                ],
-                              ),
+                        headingRowColor: WidgetStateProperty.all(
+                          const Color(0xFF1A237E).withValues(alpha: 0.08),
+                        ),
+                        columnSpacing: 20,
+                        columns: const [
+                          DataColumn(label: Text('Actions')),
+                          DataColumn(label: Text('Date')),
+                          DataColumn(label: Text('Libellé')),
+                          DataColumn(label: Text('Source')),
+                          DataColumn(label: Text('Montant')),
+                          DataColumn(label: Text('Monnaie')),
+                          DataColumn(label: Text('Agent')),
+                          DataColumn(label: Text('Observation')),
+                        ],
+                        rows: _depots.map((depot) {
+                          final isEditing = _editingDepot?.uuid == depot.uuid;
+                          return DataRow(
+                            color: WidgetStateProperty.resolveWith(
+                              (states) => isEditing
+                                  ? const Color(
+                                      0xFF1A237E,
+                                    ).withValues(alpha: 0.06)
+                                  : null,
                             ),
-                            DataCell(Text(_formatDate(depot.datePaiement))),
-                            DataCell(Text(depot.libelle ?? '-')),
-                            DataCell(Text(depot.sourceLabel ?? '-')),
-                            DataCell(Text(depot.montant != null ? depot.montant!.toStringAsFixed(2) : '-')),
-                            DataCell(Text(depot.monnaieLabel)),
-                            DataCell(Text(depot.agent ?? '-')),
-                            DataCell(Text(depot.observation ?? '-')),
-                          ],
-                        );
-                      }).toList(),
+                            cells: [
+                              DataCell(
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.edit_outlined,
+                                        color: Color(0xFF1A237E),
+                                      ),
+                                      tooltip: 'Modifier',
+                                      onPressed: () => _startEdit(depot),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.red,
+                                      ),
+                                      tooltip: 'Supprimer',
+                                      onPressed: () => _confirmDelete(depot),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              DataCell(Text(_formatDate(depot.datePaiement))),
+                              DataCell(Text(depot.libelle ?? '-')),
+                              DataCell(Text(depot.sourceLabel ?? '-')),
+                              DataCell(
+                                Text(
+                                  depot.montant != null
+                                      ? depot.montant!.toStringAsFixed(2)
+                                      : '-',
+                                ),
+                              ),
+                              DataCell(Text(depot.monnaieLabel)),
+                              DataCell(Text(depot.agent ?? '-')),
+                              DataCell(Text(depot.observation ?? '-')),
+                            ],
+                          );
+                        }).toList(),
                       ),
                     ),
                   ),

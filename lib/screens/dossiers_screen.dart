@@ -51,6 +51,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
   final _portChargementCtrl = TextEditingController();
   final _portDestinationCtrl = TextEditingController();
   final _natureMarchandiseCtrl = TextEditingController();
+  final _nomDeclarantCtrl = TextEditingController();
   final _dateReceptionBlCtrl = TextEditingController();
   final _dateArriveePnCtrl = TextEditingController();
   final _dateArriveeMatadictrl = TextEditingController();
@@ -91,6 +92,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
     _portChargementCtrl.dispose();
     _portDestinationCtrl.dispose();
     _natureMarchandiseCtrl.dispose();
+    _nomDeclarantCtrl.dispose();
     _dateReceptionBlCtrl.dispose();
     _dateArriveePnCtrl.dispose();
     _dateArriveeMatadictrl.dispose();
@@ -136,6 +138,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
           (d.portChargement ?? '').toLowerCase().contains(q) ||
           (d.portDestination ?? '').toLowerCase().contains(q) ||
           (d.natureMarchandise ?? '').toLowerCase().contains(q) ||
+          (d.nomDeclarant ?? '').toLowerCase().contains(q) ||
           (d.statut ?? '').toLowerCase().contains(q) ||
           _clientLabel(d.clientUuid).toLowerCase().contains(q);
     }).toList();
@@ -179,6 +182,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
       _portChargementCtrl.text = d.portChargement ?? '';
       _portDestinationCtrl.text = d.portDestination ?? '';
       _natureMarchandiseCtrl.text = d.natureMarchandise ?? '';
+      _nomDeclarantCtrl.text = d.nomDeclarant ?? '';
       _dateReceptionBlCtrl.text = d.dateReceptionBl ?? '';
       _dateArriveePnCtrl.text = d.dateArriveePn ?? '';
       _dateArriveeMatadictrl.text = d.dateArriveeMatadi ?? '';
@@ -204,6 +208,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
       _portChargementCtrl.clear();
       _portDestinationCtrl.clear();
       _natureMarchandiseCtrl.clear();
+      _nomDeclarantCtrl.clear();
       _dateReceptionBlCtrl.clear();
       _dateArriveePnCtrl.clear();
       _dateArriveeMatadictrl.clear();
@@ -241,7 +246,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
           datePaiement40Matadi: _n(_datePaiement40MatadictrlCtrl.text),
           montantConvenu: montant,
           statut: _selectedStatut,
-          typeBl: _selectedTypeBl,
+          typeBl: _storedTypeBlValue(),
         );
       } else {
         await AppDatabase.instance.createDossier(
@@ -258,7 +263,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
           datePaiement40Matadi: _n(_datePaiement40MatadictrlCtrl.text),
           montantConvenu: montant,
           statut: _selectedStatut,
-          typeBl: _selectedTypeBl,
+          typeBl: _storedTypeBlValue(),
         );
       }
       _cancelEdit();
@@ -323,6 +328,13 @@ class _DossiersScreenState extends State<DossiersScreen> {
 
   String? _n(String s) => s.trim().isEmpty ? null : s.trim();
 
+  String? _storedTypeBlValue() {
+    final typeBl = _selectedTypeBl?.trim() ?? '';
+    final nomDeclarant = _nomDeclarantCtrl.text.trim();
+    if (typeBl.isEmpty && nomDeclarant.isEmpty) return null;
+    return '$typeBl|$nomDeclarant';
+  }
+
   int _conteneurCount(String dossierUuid) => _conteneurCounts[dossierUuid] ?? 0;
 
   Future<void> _showDossierDetails(Dossier dossier) async {
@@ -338,6 +350,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
         limit: null,
       ),
       AppDatabase.instance.getConteneursByDossier(dossier.uuid),
+      AppDatabase.instance.getDossierFinancialRows(dossier.uuid),
     ]);
 
     await showDialog<void>(
@@ -374,61 +387,164 @@ class _DossiersScreenState extends State<DossiersScreen> {
               final depots = results[0] as List<DepotArgentRecord>;
               final depenses = results[1] as List<DepenseRecord>;
               final conteneurs = results[2] as List<Conteneur>;
+              final financialRows = results[3] as List<Map<String, Object?>>;
               return ListView(
                 children: [
                   _DossierDetailSection(
                     icon: Icons.description_outlined,
                     title: 'Informations du dossier',
-                    child: Wrap(
-                      spacing: 24,
-                      runSpacing: 16,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _DossierInfo(label: 'N° BL', value: dossier.numeroBl),
-                        _DossierInfo(
-                          label: 'Client',
-                          value: _clientLabel(dossier.clientUuid),
+                        const Text(
+                          'Situation financière',
+                          style: TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        _DossierInfo(label: 'Statut', value: dossier.statut),
-                        _DossierInfo(label: 'Type BL', value: dossier.typeBl),
-                        _DossierInfo(
-                          label: 'Port de chargement',
-                          value: dossier.portChargement,
-                        ),
-                        _DossierInfo(
-                          label: 'Port de destination',
-                          value: dossier.portDestination,
-                        ),
-                        _DossierInfo(
-                          label: 'Marchandise',
-                          value: dossier.natureMarchandise,
-                        ),
-                        _DossierInfo(
-                          label: 'Réception BL',
-                          value: _formatDate(dossier.dateReceptionBl),
-                        ),
-                        _DossierInfo(
-                          label: 'Montant convenu',
-                          value: dossier.montantConvenu?.toStringAsFixed(2),
-                        ),
-                        _DossierInfo(
-                          label: 'Arrivée PN',
-                          value: _formatDate(dossier.dateArriveePn),
-                        ),
-                        _DossierInfo(
-                          label: 'Arrivée Matadi',
-                          value: _formatDate(dossier.dateArriveeMatadi),
-                        ),
-                        _DossierInfo(
-                          label: 'Paiement 30% Draft',
-                          value: _formatDate(dossier.datePaiement30Draft),
-                        ),
-                        _DossierInfo(
-                          label: 'Paiement 30% PN',
-                          value: _formatDate(dossier.datePaiement30Pn),
-                        ),
-                        _DossierInfo(
-                          label: 'Paiement 40% Matadi',
-                          value: _formatDate(dossier.datePaiement40Matadi),
+                        const SizedBox(height: 8),
+                        if (financialRows.isEmpty)
+                          const Text(
+                            'Aucun mouvement financier pour ce dossier.',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          )
+                        else
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              headingRowColor: WidgetStateProperty.all(
+                                const Color(0xFF1A237E).withValues(alpha: 0.08),
+                              ),
+                              columns: const [
+                                DataColumn(label: Text('Monnaie')),
+                                DataColumn(
+                                  label: Text('Total dépôts'),
+                                  numeric: true,
+                                ),
+                                DataColumn(
+                                  label: Text('Total dépenses'),
+                                  numeric: true,
+                                ),
+                                DataColumn(
+                                  label: Text('Solde financier'),
+                                  numeric: true,
+                                ),
+                              ],
+                              rows: financialRows.map((row) {
+                                final totalDepot =
+                                    (row['total_depot'] as num?)?.toDouble() ??
+                                    0;
+                                final totalDepense =
+                                    (row['total_depense'] as num?)
+                                        ?.toDouble() ??
+                                    0;
+                                final solde = totalDepot - totalDepense;
+                                final monnaie =
+                                    row['monnaie_sigle']
+                                            ?.toString()
+                                            .trim()
+                                            .isNotEmpty ==
+                                        true
+                                    ? row['monnaie_sigle'].toString()
+                                    : row['monnaie_nom']?.toString() ?? '-';
+                                const totalStyle = TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                );
+                                return DataRow(
+                                  cells: [
+                                    DataCell(Text(monnaie, style: totalStyle)),
+                                    DataCell(
+                                      Text(
+                                        totalDepot.toStringAsFixed(2),
+                                        style: totalStyle,
+                                      ),
+                                    ),
+                                    DataCell(
+                                      Text(
+                                        totalDepense.toStringAsFixed(2),
+                                        style: totalStyle,
+                                      ),
+                                    ),
+                                    DataCell(
+                                      Text(
+                                        solde.toStringAsFixed(2),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: solde >= 0
+                                              ? Colors.green.shade700
+                                              : Colors.red.shade700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        const Divider(height: 28),
+                        Wrap(
+                          spacing: 24,
+                          runSpacing: 16,
+                          children: [
+                            _DossierInfo(
+                              label: 'N° BL',
+                              value: dossier.numeroBl,
+                            ),
+                            _DossierInfo(
+                              label: 'Client',
+                              value: _clientLabel(dossier.clientUuid),
+                            ),
+                            _DossierInfo(
+                              label: 'Statut',
+                              value: dossier.statut,
+                            ),
+                            _DossierInfo(
+                              label: 'Type BL',
+                              value: dossier.typeBl,
+                            ),
+                            _DossierInfo(
+                              label: 'Nom déclarant',
+                              value: dossier.nomDeclarant,
+                            ),
+                            _DossierInfo(
+                              label: 'Port de chargement',
+                              value: dossier.portChargement,
+                            ),
+                            _DossierInfo(
+                              label: 'Port de destination',
+                              value: dossier.portDestination,
+                            ),
+                            _DossierInfo(
+                              label: 'Marchandise',
+                              value: dossier.natureMarchandise,
+                            ),
+                            _DossierInfo(
+                              label: 'Réception BL',
+                              value: _formatDate(dossier.dateReceptionBl),
+                            ),
+                            _DossierInfo(
+                              label: 'Montant convenu',
+                              value: dossier.montantConvenu?.toStringAsFixed(2),
+                            ),
+                            _DossierInfo(
+                              label: 'Arrivée PN',
+                              value: _formatDate(dossier.dateArriveePn),
+                            ),
+                            _DossierInfo(
+                              label: 'Arrivée Matadi',
+                              value: _formatDate(dossier.dateArriveeMatadi),
+                            ),
+                            _DossierInfo(
+                              label: 'Paiement 30% Draft',
+                              value: _formatDate(dossier.datePaiement30Draft),
+                            ),
+                            _DossierInfo(
+                              label: 'Paiement 30% PN',
+                              value: _formatDate(dossier.datePaiement30Pn),
+                            ),
+                            _DossierInfo(
+                              label: 'Paiement 40% Matadi',
+                              value: _formatDate(dossier.datePaiement40Matadi),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -2347,9 +2463,20 @@ class _DossiersScreenState extends State<DossiersScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              // Ligne 2 : Port chargement | Port destination | Nature marchandise
+              // Ligne 2 : Déclarant | Port chargement | Port destination | Marchandise
               Row(
                 children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _nomDeclarantCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Nom déclarant',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.badge_outlined),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: TextFormField(
                       controller: _portChargementCtrl,
@@ -2562,7 +2689,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
                     controller: _searchCtrl,
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
-                      hintText: 'Rechercher...',
+                      hintText: 'Rechercher par N° BL, déclarant, client...',
                       prefixIcon: const Icon(Icons.search),
                       suffixIcon: _searchCtrl.text.isNotEmpty
                           ? IconButton(
@@ -2607,6 +2734,10 @@ class _DossiersScreenState extends State<DossiersScreen> {
               Expanded(
                 child: HorizontalTableScroller(
                   controller: _hScrollCtrl,
+                  toolbarLeading: Text(
+                    'Total : ${_filteredDossiers.length} dossiers',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   child: SingleChildScrollView(
                     child: DataTable(
                       headingRowColor: WidgetStateProperty.all(
@@ -2616,6 +2747,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
                       columns: [
                         const DataColumn(label: Text('Actions')),
                         const DataColumn(label: Text('N° BL')),
+                        const DataColumn(label: Text('Nom déclarant')),
                         const DataColumn(label: Text('Client')),
                         const DataColumn(label: Text('Port charg.')),
                         const DataColumn(label: Text('Port dest.')),
@@ -2687,6 +2819,7 @@ class _DossiersScreenState extends State<DossiersScreen> {
                               ),
                             ),
                             detailCell(Text(d.numeroBl ?? '-')),
+                            detailCell(Text(d.nomDeclarant ?? '-')),
                             detailCell(Text(_clientLabel(d.clientUuid))),
                             detailCell(Text(d.portChargement ?? '-')),
                             detailCell(Text(d.portDestination ?? '-')),

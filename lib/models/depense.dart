@@ -18,6 +18,9 @@ class DepenseRecord {
   final String? numeroVoyage;
   final int? dejaExecuter;
   final String? dossierUuid;
+  final String? conteneurUuid;
+  final String? numeroBl;
+  final String? numeroConteneur;
 
   const DepenseRecord({
     required this.uuid,
@@ -39,6 +42,9 @@ class DepenseRecord {
     this.numeroVoyage,
     this.dejaExecuter,
     this.dossierUuid,
+    this.conteneurUuid,
+    this.numeroBl,
+    this.numeroConteneur,
   });
 
   int get valideValue => valide ?? 0;
@@ -72,7 +78,11 @@ class DepenseRecord {
       origineUuid: map['origine_uuid'] as String?,
       numeroVoyage: map['numero_voyage'] as String?,
       dejaExecuter: (map['deja_executer'] as num?)?.toInt(),
-      dossierUuid: map['dossier_uuid'] as String?,
+      dossierUuid:
+          (map['dossier_uuid_value'] ?? map['dossier_uuid']) as String?,
+      conteneurUuid: map['conteneur_uuid'] as String?,
+      numeroBl: map['numero_bl'] as String?,
+      numeroConteneur: map['numero_conteneur'] as String?,
     );
   }
 }

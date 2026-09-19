@@ -4,6 +4,7 @@ import '../database/app_database.dart';
 import '../models/depot_argent.dart';
 import '../models/depense.dart';
 import '../models/dossier.dart';
+import '../models/conteneur.dart';
 import '../models/monnaie.dart';
 import '../models/utilisateur.dart';
 import '../widgets/horizontal_table_scroller.dart';
@@ -56,6 +57,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
   String _selectedValidationStatus = 'Automatique';
   bool _dejaExecuter = false;
   String? _selectedDossierUuid;
+  String? _selectedConteneurUuid;
 
   // MARINA Trans extra fields
   String? _selectedTypeDepense;
@@ -65,6 +67,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
   List<Monnaie> _monnaies = [];
   List<DepenseRecord> _depenses = [];
   List<Dossier> _dossiers = [];
+  List<Conteneur> _conteneurs = [];
+  List<Map<String, Object?>> _totalsByCurrency = [];
 
   String get _depenseTable => widget.company == AppCompany.marian
       ? 'depenses_marina_trans'
@@ -111,11 +115,20 @@ class _DepensesScreenState extends State<DepensesScreen> {
     setState(() => _isGridLoading = true);
     final search = _searchCtrl.text;
     final statusFilter = _kDepenseStatusFilters[_selectedStatusFilter];
-    final total = await AppDatabase.instance.getDepenseCount(
-      table: _depenseTable,
-      search: search,
-      valideOnly: statusFilter,
-    );
+    final summaryResults = await Future.wait([
+      AppDatabase.instance.getDepenseCount(
+        table: _depenseTable,
+        search: search,
+        valideOnly: statusFilter,
+      ),
+      AppDatabase.instance.getDepenseTotalsByCurrency(
+        table: _depenseTable,
+        search: search,
+        valideOnly: statusFilter,
+      ),
+    ]);
+    final total = summaryResults[0] as int;
+    final totalsByCurrency = summaryResults[1] as List<Map<String, Object?>>;
     final maxPage = total <= 0 ? 0 : (total - 1) ~/ _kDepensePageSize;
     final safePage = total <= 0
         ? 0
@@ -136,8 +149,40 @@ class _DepensesScreenState extends State<DepensesScreen> {
       _currentPage = safePage;
       _totalRows = total;
       _depenses = records;
+      _totalsByCurrency = totalsByCurrency;
       _isGridLoading = false;
     });
+  }
+
+  Future<void> _loadConteneursForDossier({String? selectedUuid}) async {
+    final dossierUuid = _selectedDossierUuid;
+    if (widget.company != AppCompany.makoso || dossierUuid == null) {
+      if (!mounted) return;
+      setState(() {
+        _conteneurs = [];
+        _selectedConteneurUuid = null;
+      });
+      return;
+    }
+
+    final conteneurs = await AppDatabase.instance.getConteneursByDossier(
+      dossierUuid,
+    );
+    if (!mounted) return;
+    setState(() {
+      _conteneurs = conteneurs;
+      _selectedConteneurUuid =
+          conteneurs.any((conteneur) => conteneur.uuid == selectedUuid)
+          ? selectedUuid
+          : null;
+    });
+  }
+
+  String? _storedDossierValue() {
+    final dossierUuid = _selectedDossierUuid;
+    if (dossierUuid == null) return null;
+    final conteneurUuid = _selectedConteneurUuid;
+    return conteneurUuid == null ? dossierUuid : '$dossierUuid|$conteneurUuid';
   }
 
   Future<void> _loadOrigineOptions({String? includeOrigineUuid}) async {
@@ -512,7 +557,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
               : null,
           dejaExecuter: _dejaExecuter ? 1 : 0,
           dossierUuid: widget.company == AppCompany.makoso
-              ? _selectedDossierUuid
+              ? _storedDossierValue()
               : null,
         );
       } else {
@@ -534,7 +579,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
               : null,
           dejaExecuter: _dejaExecuter ? 1 : 0,
           dossierUuid: widget.company == AppCompany.makoso
-              ? _selectedDossierUuid
+              ? _storedDossierValue()
               : null,
         );
       }
@@ -575,6 +620,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
       _selectedValidationStatus = depense.validationStatus;
       _dejaExecuter = depense.isDejaExecuter;
       _selectedDossierUuid = depense.dossierUuid;
+      _selectedConteneurUuid = depense.conteneurUuid;
       if (widget.company == AppCompany.marian) {
         _selectedTypeDepense = depense.typeDepense;
         _selectedOrigineUuid = depense.origineUuid;
@@ -583,6 +629,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
     });
     if (widget.company == AppCompany.marian) {
       await _loadOrigineOptions(includeOrigineUuid: depense.origineUuid);
+    } else if (widget.company == AppCompany.makoso) {
+      await _loadConteneursForDossier(selectedUuid: depense.conteneurUuid);
     }
   }
 
@@ -594,6 +642,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
       _selectedValidationStatus = 'Automatique';
       _dejaExecuter = false;
       _selectedDossierUuid = null;
+      _selectedConteneurUuid = null;
+      _conteneurs = [];
       if (widget.company == AppCompany.marian) {
         _selectedTypeDepense = null;
         _selectedOrigineUuid = null;
@@ -890,7 +940,54 @@ class _DepensesScreenState extends State<DepensesScreen> {
                       ),
                     ),
                   ],
-                  onChanged: (v) => setState(() => _selectedDossierUuid = v),
+                  onChanged: (value) async {
+                    setState(() {
+                      _selectedDossierUuid = value;
+                      _selectedConteneurUuid = null;
+                      _conteneurs = [];
+                    });
+                    await _loadConteneursForDossier();
+                  },
+                ),
+              ),
+            if (widget.company == AppCompany.makoso)
+              SizedBox(
+                width: fieldWidth,
+                child: DropdownButtonFormField<String>(
+                  key: ValueKey(
+                    'conteneur-${_selectedDossierUuid ?? ''}-${_selectedConteneurUuid ?? ''}',
+                  ),
+                  initialValue:
+                      _conteneurs.any(
+                        (conteneur) => conteneur.uuid == _selectedConteneurUuid,
+                      )
+                      ? _selectedConteneurUuid
+                      : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Numéro conteneur',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.inventory_2_outlined),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: null,
+                      child: Text('— Aucun —'),
+                    ),
+                    ..._conteneurs.map(
+                      (conteneur) => DropdownMenuItem(
+                        value: conteneur.uuid,
+                        child: Text(
+                          conteneur.numeroConteneur ?? conteneur.uuid,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                  onChanged: _selectedDossierUuid == null
+                      ? null
+                      : (value) =>
+                            setState(() => _selectedConteneurUuid = value),
                 ),
               ),
             SizedBox(
@@ -966,6 +1063,26 @@ class _DepensesScreenState extends State<DepensesScreen> {
 
   Color _statusColor(int valide) {
     return valide > 0 ? Colors.green : Colors.orange;
+  }
+
+  Widget _buildExpenseSummary() {
+    final totals = _totalsByCurrency
+        .map((row) {
+          final currency =
+              row['monnaie_sigle']?.toString().trim().isNotEmpty == true
+              ? row['monnaie_sigle'].toString()
+              : row['monnaie_nom']?.toString() ?? '-';
+          final total = (row['total'] as num?)?.toDouble() ?? 0;
+          return '$currency : ${total.toStringAsFixed(2)}';
+        })
+        .join('   |   ');
+
+    return Text(
+      totals.isEmpty
+          ? 'Total : $_totalRows dépenses'
+          : 'Total : $_totalRows dépenses   |   $totals',
+      style: const TextStyle(fontWeight: FontWeight.w600),
+    );
   }
 
   Widget _buildPaginationBar() {
@@ -1124,7 +1241,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
                     decoration: InputDecoration(
                       hintText: widget.company == AppCompany.marian
                           ? 'Rechercher par numéro de voyage, libellé...'
-                          : 'Rechercher...',
+                          : 'Rechercher par N° BL, N° conteneur, libellé...',
                       prefixIcon: const Icon(Icons.search),
                       suffixIcon: _searchCtrl.text.isNotEmpty
                           ? IconButton(
@@ -1173,6 +1290,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
             else
               Expanded(
                 child: HorizontalTableScroller(
+                  toolbarLeading: _buildExpenseSummary(),
                   child: VerticalTableScroller(
                     child: DataTable(
                       headingRowColor: WidgetStateProperty.all(
@@ -1184,6 +1302,10 @@ class _DepensesScreenState extends State<DepensesScreen> {
                         const DataColumn(label: Text('Date')),
                         if (widget.company == AppCompany.marian)
                           const DataColumn(label: Text('N° Voyage')),
+                        if (widget.company == AppCompany.makoso) ...[
+                          const DataColumn(label: Text('N° BL')),
+                          const DataColumn(label: Text('N° Conteneur')),
+                        ],
                         const DataColumn(label: Text('Libellé')),
                         const DataColumn(label: Text('Montant')),
                         const DataColumn(label: Text('Monnaie')),
@@ -1231,6 +1353,10 @@ class _DepensesScreenState extends State<DepensesScreen> {
                             DataCell(Text(_formatDate(depense.date))),
                             if (widget.company == AppCompany.marian)
                               DataCell(Text(depense.numeroVoyage ?? '-')),
+                            if (widget.company == AppCompany.makoso) ...[
+                              DataCell(Text(depense.numeroBl ?? '-')),
+                              DataCell(Text(depense.numeroConteneur ?? '-')),
+                            ],
                             DataCell(Text(depense.libelle ?? '-')),
                             DataCell(
                               Text(

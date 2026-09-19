@@ -16,6 +16,7 @@ class Dossier {
   final double? montantConvenu;
   final String? statut;
   final String? typeBl;
+  final String? nomDeclarant;
   final String? dateCreation;
 
   const Dossier({
@@ -36,10 +37,20 @@ class Dossier {
     this.montantConvenu,
     this.statut,
     this.typeBl,
+    this.nomDeclarant,
     this.dateCreation,
   });
 
   factory Dossier.fromMap(Map<String, Object?> m) {
+    final storedTypeBl = (m['type_bl'] as String?)?.trim();
+    final separatorIndex = storedTypeBl?.indexOf('|') ?? -1;
+    final typeBl = separatorIndex < 0
+        ? storedTypeBl
+        : storedTypeBl!.substring(0, separatorIndex).trim();
+    final nomDeclarant = separatorIndex < 0
+        ? null
+        : storedTypeBl!.substring(separatorIndex + 1).trim();
+
     return Dossier(
       uuid: m['uuid'] as String,
       id: m['id'] as int?,
@@ -57,7 +68,10 @@ class Dossier {
       datePaiement40Matadi: m['date_paiement_40_matadi'] as String?,
       montantConvenu: (m['montant_convenu'] as num?)?.toDouble(),
       statut: m['statut'] as String?,
-      typeBl: m['type_bl'] as String?,
+      typeBl: typeBl == null || typeBl.isEmpty ? null : typeBl,
+      nomDeclarant: nomDeclarant == null || nomDeclarant.isEmpty
+          ? null
+          : nomDeclarant,
       dateCreation: m['date_creation'] as String?,
     );
   }

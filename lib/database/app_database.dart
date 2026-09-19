@@ -1945,6 +1945,36 @@ class AppDatabase {
     return ((rows.first['total'] as num?) ?? 0).toInt();
   }
 
+  Future<List<Map<String, Object?>>> getDepotArgentTotalsByCurrency({
+    required String table,
+    String? search,
+    List<String>? sourceStatuses,
+  }) async {
+    final db = await initialize();
+    final whereClauses = <String>['da.id > 0'];
+    final args = <Object?>[];
+    _appendDepotArgentFilters(
+      whereClauses,
+      args,
+      search: search,
+      sourceStatuses: sourceStatuses,
+    );
+
+    return db.rawQuery('''
+      SELECT
+        m.nom AS monnaie_nom,
+        m.sigle AS monnaie_sigle,
+        SUM(COALESCE(da.montant, 0)) AS total
+      FROM $table da
+      LEFT JOIN monnaies m ON m.uuid = da.monnaie_uuid AND m.id > 0
+      LEFT JOIN voyages v ON v.uuid = da.source_uuid AND v.id > 0
+      LEFT JOIN dossiers ds ON ds.uuid = da.source_uuid AND ds.id > 0
+      WHERE ${whereClauses.join(' AND ')}
+      GROUP BY da.monnaie_uuid, m.nom, m.sigle
+      ORDER BY COALESCE(m.sigle, m.nom, '') ASC
+    ''', args);
+  }
+
   Future<void> createDepotArgent({
     required String table,
     required String monnaieUuid,
@@ -2031,6 +2061,7 @@ class AppDatabase {
     String? fromDate,
     String? toDate,
     bool includeVoyageNumber = false,
+    bool includeMakosoReferences = false,
   }) {
     final normalizedSearch = search?.trim().toLowerCase();
     if (normalizedSearch != null && normalizedSearch.isNotEmpty) {
@@ -2044,6 +2075,8 @@ class AppDatabase {
           OR LOWER(COALESCE(m.sigle, '')) LIKE ?
           OR CAST(COALESCE(d.montant, 0) AS TEXT) LIKE ?
           ${includeVoyageNumber ? "OR LOWER(COALESCE(v.numero_voyage, '')) LIKE ?" : ''}
+          ${includeMakosoReferences ? "OR LOWER(COALESCE(ds.numero_bl, '')) LIKE ?" : ''}
+          ${includeMakosoReferences ? "OR LOWER(COALESCE(c.numero_conteneur, '')) LIKE ?" : ''}
         )
       ''');
       args.addAll([
@@ -2054,6 +2087,8 @@ class AppDatabase {
         like,
         like,
         if (includeVoyageNumber) like,
+        if (includeMakosoReferences) like,
+        if (includeMakosoReferences) like,
       ]);
     }
 
@@ -2117,6 +2152,7 @@ class AppDatabase {
   }) async {
     final db = await initialize();
     final includeVoyage = table == 'depenses_marina_trans';
+    final includeMakosoReferences = table == 'depenses_makoso';
     final whereClauses = <String>['d.id > 0'];
     final args = <Object?>[];
     _appendDepenseFilters(
@@ -2127,9 +2163,16 @@ class AppDatabase {
       fromDate: fromDate,
       toDate: toDate,
       includeVoyageNumber: includeVoyage,
+      includeMakosoReferences: includeMakosoReferences,
     );
     if (dossierUuid != null) {
-      whereClauses.add('d.dossier_uuid = ?');
+      whereClauses.add('''
+        CASE
+          WHEN INSTR(COALESCE(d.dossier_uuid, ''), '|') > 0
+            THEN SUBSTR(d.dossier_uuid, 1, INSTR(d.dossier_uuid, '|') - 1)
+          ELSE d.dossier_uuid
+        END = ?
+      ''');
       args.add(dossierUuid);
     }
 
@@ -2140,11 +2183,17 @@ class AppDatabase {
         m.nom AS monnaie_nom,
         m.sigle AS monnaie_sigle,
         COALESCE(u.nom_complet, u.nom_utilisateur) AS validateur_nom,
-        ${includeVoyage ? 'v.numero_voyage' : 'NULL'} AS numero_voyage
+        ${includeVoyage ? 'v.numero_voyage' : 'NULL'} AS numero_voyage,
+        ${includeMakosoReferences ? 'ds.numero_bl' : 'NULL'} AS numero_bl,
+        ${includeMakosoReferences ? 'c.numero_conteneur' : 'NULL'} AS numero_conteneur,
+        ${includeMakosoReferences ? "CASE WHEN INSTR(COALESCE(d.dossier_uuid, ''), '|') > 0 THEN SUBSTR(d.dossier_uuid, 1, INSTR(d.dossier_uuid, '|') - 1) ELSE d.dossier_uuid END" : 'NULL'} AS dossier_uuid_value,
+        ${includeMakosoReferences ? "NULLIF(CASE WHEN INSTR(COALESCE(d.dossier_uuid, ''), '|') > 0 THEN SUBSTR(d.dossier_uuid, INSTR(d.dossier_uuid, '|') + 1) ELSE '' END, '')" : 'NULL'} AS conteneur_uuid
       FROM $table d
       LEFT JOIN monnaies m ON m.uuid = d.monnaie_uuid AND m.id > 0
       LEFT JOIN utilisateurs u ON u.uuid = d.validateur_uuid AND u.id > 0
       ${includeVoyage ? 'LEFT JOIN voyages v ON v.uuid = d.origine_uuid AND v.id > 0' : ''}
+      ${includeMakosoReferences ? "LEFT JOIN dossiers ds ON ds.uuid = CASE WHEN INSTR(COALESCE(d.dossier_uuid, ''), '|') > 0 THEN SUBSTR(d.dossier_uuid, 1, INSTR(d.dossier_uuid, '|') - 1) ELSE d.dossier_uuid END AND ds.id > 0" : ''}
+      ${includeMakosoReferences ? "LEFT JOIN conteneurs c ON c.uuid = NULLIF(CASE WHEN INSTR(COALESCE(d.dossier_uuid, ''), '|') > 0 THEN SUBSTR(d.dossier_uuid, INSTR(d.dossier_uuid, '|') + 1) ELSE '' END, '') AND c.id > 0" : ''}
       WHERE ${whereClauses.join(' AND ')}
       ORDER BY COALESCE(d.date, '') DESC, ABS(d.id) DESC
     ''';
@@ -2169,6 +2218,7 @@ class AppDatabase {
   }) async {
     final db = await initialize();
     final includeVoyage = table == 'depenses_marina_trans';
+    final includeMakosoReferences = table == 'depenses_makoso';
     final whereClauses = <String>['d.id > 0'];
     final args = <Object?>[];
     _appendDepenseFilters(
@@ -2177,6 +2227,7 @@ class AppDatabase {
       search: search,
       valideOnly: valideOnly,
       includeVoyageNumber: includeVoyage,
+      includeMakosoReferences: includeMakosoReferences,
     );
 
     final rows = await db.rawQuery('''
@@ -2184,9 +2235,46 @@ class AppDatabase {
       FROM $table d
       LEFT JOIN monnaies m ON m.uuid = d.monnaie_uuid AND m.id > 0
       ${includeVoyage ? 'LEFT JOIN voyages v ON v.uuid = d.origine_uuid AND v.id > 0' : ''}
+      ${includeMakosoReferences ? "LEFT JOIN dossiers ds ON ds.uuid = CASE WHEN INSTR(COALESCE(d.dossier_uuid, ''), '|') > 0 THEN SUBSTR(d.dossier_uuid, 1, INSTR(d.dossier_uuid, '|') - 1) ELSE d.dossier_uuid END AND ds.id > 0" : ''}
+      ${includeMakosoReferences ? "LEFT JOIN conteneurs c ON c.uuid = NULLIF(CASE WHEN INSTR(COALESCE(d.dossier_uuid, ''), '|') > 0 THEN SUBSTR(d.dossier_uuid, INSTR(d.dossier_uuid, '|') + 1) ELSE '' END, '') AND c.id > 0" : ''}
       WHERE ${whereClauses.join(' AND ')}
       ''', args);
     return ((rows.first['total'] as num?) ?? 0).toInt();
+  }
+
+  Future<List<Map<String, Object?>>> getDepenseTotalsByCurrency({
+    required String table,
+    String? search,
+    bool? valideOnly,
+  }) async {
+    final db = await initialize();
+    final includeVoyage = table == 'depenses_marina_trans';
+    final includeMakosoReferences = table == 'depenses_makoso';
+    final whereClauses = <String>['d.id > 0'];
+    final args = <Object?>[];
+    _appendDepenseFilters(
+      whereClauses,
+      args,
+      search: search,
+      valideOnly: valideOnly,
+      includeVoyageNumber: includeVoyage,
+      includeMakosoReferences: includeMakosoReferences,
+    );
+
+    return db.rawQuery('''
+      SELECT
+        m.nom AS monnaie_nom,
+        m.sigle AS monnaie_sigle,
+        SUM(COALESCE(d.montant, 0)) AS total
+      FROM $table d
+      LEFT JOIN monnaies m ON m.uuid = d.monnaie_uuid AND m.id > 0
+      ${includeVoyage ? 'LEFT JOIN voyages v ON v.uuid = d.origine_uuid AND v.id > 0' : ''}
+      ${includeMakosoReferences ? "LEFT JOIN dossiers ds ON ds.uuid = CASE WHEN INSTR(COALESCE(d.dossier_uuid, ''), '|') > 0 THEN SUBSTR(d.dossier_uuid, 1, INSTR(d.dossier_uuid, '|') - 1) ELSE d.dossier_uuid END AND ds.id > 0" : ''}
+      ${includeMakosoReferences ? "LEFT JOIN conteneurs c ON c.uuid = NULLIF(CASE WHEN INSTR(COALESCE(d.dossier_uuid, ''), '|') > 0 THEN SUBSTR(d.dossier_uuid, INSTR(d.dossier_uuid, '|') + 1) ELSE '' END, '') AND c.id > 0" : ''}
+      WHERE ${whereClauses.join(' AND ')}
+      GROUP BY d.monnaie_uuid, m.nom, m.sigle
+      ORDER BY COALESCE(m.sigle, m.nom, '') ASC
+    ''', args);
   }
 
   Future<void> createDepense({
@@ -2294,18 +2382,76 @@ class AppDatabase {
   Future<Map<String, double>> getDepenseTotalsByDossier() async {
     final db = await initialize();
     final rows = await db.rawQuery('''
-      SELECT dossier_uuid, SUM(montant) AS total
+      SELECT
+        CASE
+          WHEN INSTR(dossier_uuid, '|') > 0
+            THEN SUBSTR(dossier_uuid, 1, INSTR(dossier_uuid, '|') - 1)
+          ELSE dossier_uuid
+        END AS dossier_uuid_value,
+        SUM(montant) AS total
       FROM depenses_makoso
       WHERE id > 0
         AND dossier_uuid IS NOT NULL
         AND valide = 1
-      GROUP BY dossier_uuid
+      GROUP BY dossier_uuid_value
     ''');
     return {
       for (final row in rows)
-        row['dossier_uuid'] as String:
+        row['dossier_uuid_value'] as String:
             (row['total'] as num?)?.toDouble() ?? 0.0,
     };
+  }
+
+  Future<List<Map<String, Object?>>> getDossierFinancialRows(
+    String dossierUuid,
+  ) async {
+    final db = await initialize();
+    const depenseDossierUuid = '''
+      CASE
+        WHEN INSTR(COALESCE(dep.dossier_uuid, ''), '|') > 0
+          THEN SUBSTR(dep.dossier_uuid, 1, INSTR(dep.dossier_uuid, '|') - 1)
+        ELSE dep.dossier_uuid
+      END
+    ''';
+    return db.rawQuery(
+      '''
+      SELECT
+        m.uuid AS monnaie_uuid,
+        m.nom AS monnaie_nom,
+        m.sigle AS monnaie_sigle,
+        COALESCE((
+          SELECT SUM(da.montant)
+          FROM depot_argent_makoso da
+          WHERE da.id > 0
+            AND da.source_uuid = ?
+            AND da.monnaie_uuid = m.uuid
+        ), 0) AS total_depot,
+        COALESCE((
+          SELECT SUM(dep.montant)
+          FROM depenses_makoso dep
+          WHERE dep.id > 0
+            AND dep.valide = 1
+            AND $depenseDossierUuid = ?
+            AND dep.monnaie_uuid = m.uuid
+        ), 0) AS total_depense
+      FROM monnaies m
+      WHERE m.id > 0
+        AND m.uuid IN (
+          SELECT monnaie_uuid
+          FROM depot_argent_makoso
+          WHERE id > 0 AND source_uuid = ? AND monnaie_uuid IS NOT NULL
+          UNION
+          SELECT dep.monnaie_uuid
+          FROM depenses_makoso dep
+          WHERE dep.id > 0
+            AND dep.valide = 1
+            AND $depenseDossierUuid = ?
+            AND dep.monnaie_uuid IS NOT NULL
+        )
+      ORDER BY m.nom ASC
+      ''',
+      [dossierUuid, dossierUuid, dossierUuid, dossierUuid],
+    );
   }
 
   // ── Monnaies ──────────────────────────────────────────────────────────────
@@ -3178,7 +3324,8 @@ class AppDatabase {
         COALESCE((
           SELECT SUM(dep.montant)
           FROM depenses_makoso dep
-          WHERE dep.dossier_uuid = d.uuid AND dep.id > 0 AND dep.valide = 1
+          WHERE (dep.dossier_uuid = d.uuid OR dep.dossier_uuid LIKE d.uuid || '|%')
+            AND dep.id > 0 AND dep.valide = 1
             AND dep.monnaie_uuid = m.uuid$eCond
         ), 0) AS total_depense
       FROM dossiers d
@@ -3192,7 +3339,8 @@ class AppDatabase {
           )
           OR EXISTS (
             SELECT 1 FROM depenses_makoso dep
-            WHERE dep.dossier_uuid = d.uuid AND dep.id > 0 AND dep.valide = 1
+            WHERE (dep.dossier_uuid = d.uuid OR dep.dossier_uuid LIKE d.uuid || '|%')
+              AND dep.id > 0 AND dep.valide = 1
               AND dep.monnaie_uuid = m.uuid$eCond
           )
         )
