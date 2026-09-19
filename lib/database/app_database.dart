@@ -2030,6 +2030,7 @@ class AppDatabase {
     bool? valideOnly,
     String? fromDate,
     String? toDate,
+    bool includeVoyageNumber = false,
   }) {
     final normalizedSearch = search?.trim().toLowerCase();
     if (normalizedSearch != null && normalizedSearch.isNotEmpty) {
@@ -2042,9 +2043,18 @@ class AppDatabase {
           OR LOWER(COALESCE(m.nom, '')) LIKE ?
           OR LOWER(COALESCE(m.sigle, '')) LIKE ?
           OR CAST(COALESCE(d.montant, 0) AS TEXT) LIKE ?
+          ${includeVoyageNumber ? "OR LOWER(COALESCE(v.numero_voyage, '')) LIKE ?" : ''}
         )
       ''');
-      args.addAll([like, like, like, like, like, like]);
+      args.addAll([
+        like,
+        like,
+        like,
+        like,
+        like,
+        like,
+        if (includeVoyageNumber) like,
+      ]);
     }
 
     if (valideOnly != null) {
@@ -2106,6 +2116,7 @@ class AppDatabase {
     int offset = 0,
   }) async {
     final db = await initialize();
+    final includeVoyage = table == 'depenses_marina_trans';
     final whereClauses = <String>['d.id > 0'];
     final args = <Object?>[];
     _appendDepenseFilters(
@@ -2115,6 +2126,7 @@ class AppDatabase {
       valideOnly: valideOnly,
       fromDate: fromDate,
       toDate: toDate,
+      includeVoyageNumber: includeVoyage,
     );
     if (dossierUuid != null) {
       whereClauses.add('d.dossier_uuid = ?');
@@ -2127,10 +2139,12 @@ class AppDatabase {
         d.*,
         m.nom AS monnaie_nom,
         m.sigle AS monnaie_sigle,
-        COALESCE(u.nom_complet, u.nom_utilisateur) AS validateur_nom
+        COALESCE(u.nom_complet, u.nom_utilisateur) AS validateur_nom,
+        ${includeVoyage ? 'v.numero_voyage' : 'NULL'} AS numero_voyage
       FROM $table d
       LEFT JOIN monnaies m ON m.uuid = d.monnaie_uuid AND m.id > 0
       LEFT JOIN utilisateurs u ON u.uuid = d.validateur_uuid AND u.id > 0
+      ${includeVoyage ? 'LEFT JOIN voyages v ON v.uuid = d.origine_uuid AND v.id > 0' : ''}
       WHERE ${whereClauses.join(' AND ')}
       ORDER BY COALESCE(d.date, '') DESC, ABS(d.id) DESC
     ''';
@@ -2154,6 +2168,7 @@ class AppDatabase {
     bool? valideOnly,
   }) async {
     final db = await initialize();
+    final includeVoyage = table == 'depenses_marina_trans';
     final whereClauses = <String>['d.id > 0'];
     final args = <Object?>[];
     _appendDepenseFilters(
@@ -2161,12 +2176,14 @@ class AppDatabase {
       args,
       search: search,
       valideOnly: valideOnly,
+      includeVoyageNumber: includeVoyage,
     );
 
     final rows = await db.rawQuery('''
       SELECT COUNT(*) AS total
       FROM $table d
       LEFT JOIN monnaies m ON m.uuid = d.monnaie_uuid AND m.id > 0
+      ${includeVoyage ? 'LEFT JOIN voyages v ON v.uuid = d.origine_uuid AND v.id > 0' : ''}
       WHERE ${whereClauses.join(' AND ')}
       ''', args);
     return ((rows.first['total'] as num?) ?? 0).toInt();
@@ -2581,6 +2598,53 @@ class AppDatabase {
       'en_cours': (row['en_cours'] as int?) ?? 0,
       'en_attente': (row['en_attente'] as int?) ?? 0,
     };
+  }
+
+  Future<List<Map<String, Object?>>> getVoyageFinancialRows(
+    String voyageUuid,
+  ) async {
+    final db = await initialize();
+    return db.rawQuery(
+      '''
+      SELECT
+        m.uuid AS monnaie_uuid,
+        m.nom AS monnaie_nom,
+        m.sigle AS monnaie_sigle,
+        COALESCE((
+          SELECT SUM(da.montant)
+          FROM depot_argent_marina_trans da
+          WHERE da.id > 0
+            AND da.source_uuid = ?
+            AND da.monnaie_uuid = m.uuid
+        ), 0) AS total_depot,
+        COALESCE((
+          SELECT SUM(dep.montant)
+          FROM depenses_marina_trans dep
+          WHERE dep.id > 0
+            AND dep.valide = 1
+            AND dep.type_depense = 'Voyage Camion'
+            AND dep.origine_uuid = ?
+            AND dep.monnaie_uuid = m.uuid
+        ), 0) AS total_depense
+      FROM monnaies m
+      WHERE m.id > 0
+        AND m.uuid IN (
+          SELECT monnaie_uuid
+          FROM depot_argent_marina_trans
+          WHERE id > 0 AND source_uuid = ? AND monnaie_uuid IS NOT NULL
+          UNION
+          SELECT monnaie_uuid
+          FROM depenses_marina_trans
+          WHERE id > 0
+            AND valide = 1
+            AND type_depense = 'Voyage Camion'
+            AND origine_uuid = ?
+            AND monnaie_uuid IS NOT NULL
+        )
+      ORDER BY m.nom ASC
+      ''',
+      [voyageUuid, voyageUuid, voyageUuid, voyageUuid],
+    );
   }
 
   /// Dossiers where at least one payment date is set, is past today,

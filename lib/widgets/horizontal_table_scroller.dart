@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 class HorizontalTableScroller extends StatefulWidget {
   final Widget child;
   final ScrollController? controller;
+  final Widget? toolbarLeading;
 
   const HorizontalTableScroller({
     super.key,
     required this.child,
     this.controller,
+    this.toolbarLeading,
   });
 
   @override
@@ -49,8 +51,7 @@ class _HorizontalTableScrollerState extends State<HorizontalTableScroller> {
     final position = _controller.position;
     final canScrollLeft = position.pixels > position.minScrollExtent;
     final canScrollRight = position.pixels < position.maxScrollExtent;
-    if (canScrollLeft == _canScrollLeft &&
-        canScrollRight == _canScrollRight) {
+    if (canScrollLeft == _canScrollLeft && canScrollRight == _canScrollRight) {
       return;
     }
     setState(() {
@@ -62,8 +63,11 @@ class _HorizontalTableScrollerState extends State<HorizontalTableScroller> {
   Future<void> _scroll(double direction) async {
     if (!_controller.hasClients) return;
     final position = _controller.position;
-    final target = (position.pixels + position.viewportDimension * 0.7 * direction)
-        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    final target =
+        (position.pixels + position.viewportDimension * 0.7 * direction).clamp(
+          position.minScrollExtent,
+          position.maxScrollExtent,
+        );
     await _controller.animateTo(
       target,
       duration: const Duration(milliseconds: 250),
@@ -90,6 +94,10 @@ class _HorizontalTableScrollerState extends State<HorizontalTableScroller> {
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
+            if (widget.toolbarLeading != null) ...[
+              widget.toolbarLeading!,
+              const Spacer(),
+            ],
             IconButton(
               tooltip: 'Défiler vers la gauche',
               onPressed: _canScrollLeft ? () => _scroll(-1) : null,

@@ -28,11 +28,7 @@ class DepensesScreen extends StatefulWidget {
   final Utilisateur user;
   final AppCompany company;
 
-  const DepensesScreen({
-    super.key,
-    required this.user,
-    required this.company,
-  });
+  const DepensesScreen({super.key, required this.user, required this.company});
 
   @override
   State<DepensesScreen> createState() => _DepensesScreenState();
@@ -124,10 +120,10 @@ class _DepensesScreenState extends State<DepensesScreen> {
     final safePage = total <= 0
         ? 0
         : targetPage < 0
-            ? 0
-            : targetPage > maxPage
-                ? maxPage
-                : targetPage;
+        ? 0
+        : targetPage > maxPage
+        ? maxPage
+        : targetPage;
     final records = await AppDatabase.instance.getDepenses(
       table: _depenseTable,
       search: search,
@@ -164,9 +160,10 @@ class _DepensesScreenState extends State<DepensesScreen> {
     } else {
       final camions = await AppDatabase.instance.getAllCamions();
       options = camions.map((c) {
-        final label = [c.marque, c.plaque]
-            .where((v) => v != null && v.isNotEmpty)
-            .join(' – ');
+        final label = [
+          c.marque,
+          c.plaque,
+        ].where((v) => v != null && v.isNotEmpty).join(' – ');
         return DepotSourceOption(
           uuid: c.uuid,
           label: label.isEmpty ? c.uuid : label,
@@ -226,13 +223,17 @@ class _DepensesScreenState extends State<DepensesScreen> {
     if (monnaieUuid == null) {
       return null;
     }
-    return _monnaies.where((monnaie) => monnaie.uuid == monnaieUuid).firstOrNull;
+    return _monnaies
+        .where((monnaie) => monnaie.uuid == monnaieUuid)
+        .firstOrNull;
   }
 
   bool _isUsdCurrency(Monnaie monnaie) {
     final sigle = (monnaie.sigle ?? '').trim().toUpperCase();
     final nom = monnaie.nom.trim().toUpperCase();
-    return sigle == 'USD' || nom == 'USD' || nom.contains('US') && nom.contains('DOLLAR');
+    return sigle == 'USD' ||
+        nom == 'USD' ||
+        nom.contains('US') && nom.contains('DOLLAR');
   }
 
   String _todayIso() {
@@ -337,14 +338,19 @@ class _DepensesScreenState extends State<DepensesScreen> {
                   TextField(
                     controller: controller,
                     autofocus: true,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     decoration: InputDecoration(
                       labelText: 'Taux de conversion',
                       border: const OutlineInputBorder(),
                       errorText: errorText,
                     ),
                     onSubmitted: (_) {
-                      final normalized = controller.text.trim().replaceAll(',', '.');
+                      final normalized = controller.text.trim().replaceAll(
+                        ',',
+                        '.',
+                      );
                       final rate = double.tryParse(normalized);
                       if (rate == null || rate <= 0) {
                         setDialogState(() {
@@ -365,7 +371,10 @@ class _DepensesScreenState extends State<DepensesScreen> {
               ),
               ElevatedButton(
                 onPressed: () {
-                  final normalized = controller.text.trim().replaceAll(',', '.');
+                  final normalized = controller.text.trim().replaceAll(
+                    ',',
+                    '.',
+                  );
                   final rate = double.tryParse(normalized);
                   if (rate == null || rate <= 0) {
                     setDialogState(() {
@@ -389,7 +398,9 @@ class _DepensesScreenState extends State<DepensesScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final montant = double.tryParse(_montantCtrl.text.trim().replaceAll(',', '.'));
+    final montant = double.tryParse(
+      _montantCtrl.text.trim().replaceAll(',', '.'),
+    );
     if (montant == null) return;
 
     final monnaie = _selectedMonnaie();
@@ -437,7 +448,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                  'En tant que collaborateur, vous ne pouvez valider que les dépenses de 1000 USD ou 10 000 USD.'),
+                'En tant que collaborateur, vous ne pouvez valider que les dépenses de 1000 USD ou 10 000 USD.',
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -455,7 +467,9 @@ class _DepensesScreenState extends State<DepensesScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Gestionnaire Kinshasa ne peut valider que les d\u00e9penses en USD inf\u00e9rieures \u00e0 1000 USD.'),
+              content: Text(
+                'Gestionnaire Kinshasa ne peut valider que les d\u00e9penses en USD inf\u00e9rieures \u00e0 1000 USD.',
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -467,7 +481,9 @@ class _DepensesScreenState extends State<DepensesScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Gestionnaire Kinshasa ne peut valider que les d\u00e9penses inf\u00e9rieures \u00e0 1000 USD.'),
+              content: Text(
+                'Gestionnaire Kinshasa ne peut valider que les d\u00e9penses inf\u00e9rieures \u00e0 1000 USD.',
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -488,10 +504,16 @@ class _DepensesScreenState extends State<DepensesScreen> {
           valide: validationDecision.valide,
           dateValidation: validationDecision.dateValidation,
           validateurUuid: validationDecision.validateurUuid,
-          typeDepense: widget.company == AppCompany.marian ? _selectedTypeDepense : null,
-          origineUuid: widget.company == AppCompany.marian ? _selectedOrigineUuid : null,
+          typeDepense: widget.company == AppCompany.marian
+              ? _selectedTypeDepense
+              : null,
+          origineUuid: widget.company == AppCompany.marian
+              ? _selectedOrigineUuid
+              : null,
           dejaExecuter: _dejaExecuter ? 1 : 0,
-          dossierUuid: widget.company == AppCompany.makoso ? _selectedDossierUuid : null,
+          dossierUuid: widget.company == AppCompany.makoso
+              ? _selectedDossierUuid
+              : null,
         );
       } else {
         await AppDatabase.instance.createDepense(
@@ -504,10 +526,16 @@ class _DepensesScreenState extends State<DepensesScreen> {
           valide: validationDecision.valide,
           dateValidation: validationDecision.dateValidation,
           validateurUuid: validationDecision.validateurUuid,
-          typeDepense: widget.company == AppCompany.marian ? _selectedTypeDepense : null,
-          origineUuid: widget.company == AppCompany.marian ? _selectedOrigineUuid : null,
+          typeDepense: widget.company == AppCompany.marian
+              ? _selectedTypeDepense
+              : null,
+          origineUuid: widget.company == AppCompany.marian
+              ? _selectedOrigineUuid
+              : null,
           dejaExecuter: _dejaExecuter ? 1 : 0,
-          dossierUuid: widget.company == AppCompany.makoso ? _selectedDossierUuid : null,
+          dossierUuid: widget.company == AppCompany.makoso
+              ? _selectedDossierUuid
+              : null,
         );
       }
 
@@ -516,7 +544,11 @@ class _DepensesScreenState extends State<DepensesScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(isEditing ? 'Dépense modifiée avec succès.' : 'Dépense ajoutée avec succès.'),
+            content: Text(
+              isEditing
+                  ? 'Dépense modifiée avec succès.'
+                  : 'Dépense ajoutée avec succès.',
+            ),
           ),
         );
       }
@@ -579,11 +611,19 @@ class _DepensesScreenState extends State<DepensesScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Supprimer la dépense'),
-        content: Text('Voulez-vous vraiment supprimer la dépense "${depense.libelle ?? depense.uuid}" ?'),
+        content: Text(
+          'Voulez-vous vraiment supprimer la dépense "${depense.libelle ?? depense.uuid}" ?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Supprimer'),
           ),
@@ -593,12 +633,15 @@ class _DepensesScreenState extends State<DepensesScreen> {
 
     if (confirmed != true) return;
     if (_editingDepense?.uuid == depense.uuid) _cancelEdit();
-    await AppDatabase.instance.deleteDepense(depense.uuid, table: _depenseTable);
+    await AppDatabase.instance.deleteDepense(
+      depense.uuid,
+      table: _depenseTable,
+    );
     await _loadGrid();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Dépense supprimée.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Dépense supprimée.')));
     }
   }
 
@@ -685,13 +728,16 @@ class _DepensesScreenState extends State<DepensesScreen> {
                     ),
                   ),
                   items: _origineOptions
-                      .map((o) => DropdownMenuItem(
-                            value: o.uuid,
-                            child: Text(o.label),
-                          ))
+                      .map(
+                        (o) => DropdownMenuItem(
+                          value: o.uuid,
+                          child: Text(o.label),
+                        ),
+                      )
                       .toList(),
                   validator: (v) => v == null ? 'Champ requis' : null,
-                  onChanged: (value) => setState(() => _selectedOrigineUuid = value),
+                  onChanged: (value) =>
+                      setState(() => _selectedOrigineUuid = value),
                 ),
               ),
             ],
@@ -704,7 +750,9 @@ class _DepensesScreenState extends State<DepensesScreen> {
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.receipt_long_outlined),
                 ),
-                validator: (value) => value == null || value.trim().isEmpty ? 'Champ requis' : null,
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Champ requis'
+                    : null,
               ),
             ),
             SizedBox(
@@ -725,7 +773,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
                     )
                     .toList(),
                 validator: (value) => value == null ? 'Champ requis' : null,
-                onChanged: (value) => setState(() => _selectedMonnaieUuid = value),
+                onChanged: (value) =>
+                    setState(() => _selectedMonnaieUuid = value),
               ),
             ),
             SizedBox(
@@ -737,10 +786,14 @@ class _DepensesScreenState extends State<DepensesScreen> {
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.attach_money),
                 ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) return 'Champ requis';
-                  if (double.tryParse(value.trim().replaceAll(',', '.')) == null) {
+                  if (value == null || value.trim().isEmpty)
+                    return 'Champ requis';
+                  if (double.tryParse(value.trim().replaceAll(',', '.')) ==
+                      null) {
                     return 'Nombre invalide';
                   }
                   return null;
@@ -776,9 +829,14 @@ class _DepensesScreenState extends State<DepensesScreen> {
                   prefixIcon: Icon(Icons.verified_outlined),
                 ),
                 items: _kDepenseFormStatuses
-                    .map((status) => DropdownMenuItem(value: status, child: Text(status)))
+                    .map(
+                      (status) =>
+                          DropdownMenuItem(value: status, child: Text(status)),
+                    )
                     .toList(),
-                onChanged: (widget.user.role == 'caissier' || widget.user.role == 'gestionnaire matadi')
+                onChanged:
+                    (widget.user.role == 'caissier' ||
+                        widget.user.role == 'gestionnaire matadi')
                     ? null
                     : (value) {
                         if (value == null) {
@@ -821,11 +879,16 @@ class _DepensesScreenState extends State<DepensesScreen> {
                     prefixIcon: Icon(Icons.folder_outlined),
                   ),
                   items: [
-                    const DropdownMenuItem<String>(value: null, child: Text('— Aucun —')),
-                    ..._dossiers.map((d) => DropdownMenuItem(
-                          value: d.uuid,
-                          child: Text(d.numeroBl ?? d.uuid),
-                        )),
+                    const DropdownMenuItem<String>(
+                      value: null,
+                      child: Text('— Aucun —'),
+                    ),
+                    ..._dossiers.map(
+                      (d) => DropdownMenuItem(
+                        value: d.uuid,
+                        child: Text(d.numeroBl ?? d.uuid),
+                      ),
+                    ),
                   ],
                   onChanged: (v) => setState(() => _selectedDossierUuid = v),
                 ),
@@ -842,7 +905,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
                     children: [
                       Checkbox(
                         value: _dejaExecuter,
-                        onChanged: (v) => setState(() => _dejaExecuter = v ?? false),
+                        onChanged: (v) =>
+                            setState(() => _dejaExecuter = v ?? false),
                       ),
                       const Text('Déjà exécutée'),
                     ],
@@ -862,16 +926,28 @@ class _DepensesScreenState extends State<DepensesScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1A237E),
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
                     ),
                     icon: _isSaving
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
                           )
-                        : Icon(_editingDepense != null ? Icons.save_outlined : Icons.add),
-                    label: Text(_editingDepense != null ? 'Modifier' : 'Ajouter'),
+                        : Icon(
+                            _editingDepense != null
+                                ? Icons.save_outlined
+                                : Icons.add,
+                          ),
+                    label: Text(
+                      _editingDepense != null ? 'Modifier' : 'Ajouter',
+                    ),
                   ),
                   if (_editingDepense != null)
                     OutlinedButton.icon(
@@ -893,9 +969,13 @@ class _DepensesScreenState extends State<DepensesScreen> {
   }
 
   Widget _buildPaginationBar() {
-    final totalPages = _totalRows == 0 ? 1 : ((_totalRows - 1) ~/ _kDepensePageSize) + 1;
+    final totalPages = _totalRows == 0
+        ? 1
+        : ((_totalRows - 1) ~/ _kDepensePageSize) + 1;
     final start = _totalRows == 0 ? 0 : (_currentPage * _kDepensePageSize) + 1;
-    final end = _totalRows == 0 ? 0 : (_currentPage * _kDepensePageSize) + _depenses.length;
+    final end = _totalRows == 0
+        ? 0
+        : (_currentPage * _kDepensePageSize) + _depenses.length;
 
     return Row(
       children: [
@@ -911,12 +991,16 @@ class _DepensesScreenState extends State<DepensesScreen> {
         const SizedBox(width: 8),
         IconButton(
           tooltip: 'Page précédente',
-          onPressed: _currentPage > 0 && !_isGridLoading ? () => _loadGrid(page: _currentPage - 1) : null,
+          onPressed: _currentPage > 0 && !_isGridLoading
+              ? () => _loadGrid(page: _currentPage - 1)
+              : null,
           icon: const Icon(Icons.chevron_left),
         ),
         IconButton(
           tooltip: 'Page suivante',
-          onPressed: end < _totalRows && !_isGridLoading ? () => _loadGrid(page: _currentPage + 1) : null,
+          onPressed: end < _totalRows && !_isGridLoading
+              ? () => _loadGrid(page: _currentPage + 1)
+              : null,
           icon: const Icon(Icons.chevron_right),
         ),
       ],
@@ -924,7 +1008,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
   }
 
   Widget _buildFormCard() {
-    final canCollapse = widget.company == AppCompany.makoso ||
+    final canCollapse =
+        widget.company == AppCompany.makoso ||
         widget.company == AppCompany.marian;
     final header = InkWell(
       onTap: canCollapse
@@ -933,14 +1018,22 @@ class _DepensesScreenState extends State<DepensesScreen> {
       child: Row(
         children: [
           Icon(
-            _editingDepense != null ? Icons.edit_outlined : Icons.money_off_outlined,
+            _editingDepense != null
+                ? Icons.edit_outlined
+                : Icons.money_off_outlined,
             color: const Color(0xFF1A237E),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              _editingDepense != null ? 'Modifier une dépense' : 'Ajouter une dépense',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
+              _editingDepense != null
+                  ? 'Modifier une dépense'
+                  : 'Ajouter une dépense',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1A237E),
+              ),
             ),
           ),
           if (canCollapse)
@@ -977,7 +1070,8 @@ class _DepensesScreenState extends State<DepensesScreen> {
   }
 
   Widget _buildGridCard() {
-    final canCollapse = widget.company == AppCompany.makoso ||
+    final canCollapse =
+        widget.company == AppCompany.makoso ||
         widget.company == AppCompany.marian;
     final header = InkWell(
       onTap: canCollapse
@@ -990,7 +1084,11 @@ class _DepensesScreenState extends State<DepensesScreen> {
           const Expanded(
             child: Text(
               'Historique des dépenses',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A237E)),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1A237E),
+              ),
             ),
           ),
           if (canCollapse)
@@ -1024,7 +1122,9 @@ class _DepensesScreenState extends State<DepensesScreen> {
                     controller: _searchCtrl,
                     onChanged: (_) => _loadGrid(resetPage: true),
                     decoration: InputDecoration(
-                      hintText: 'Rechercher...',
+                      hintText: widget.company == AppCompany.marian
+                          ? 'Rechercher par numéro de voyage, libellé...'
+                          : 'Rechercher...',
                       prefixIcon: const Icon(Icons.search),
                       suffixIcon: _searchCtrl.text.isNotEmpty
                           ? IconButton(
@@ -1067,47 +1167,61 @@ class _DepensesScreenState extends State<DepensesScreen> {
             if (_isGridLoading)
               const Expanded(child: Center(child: CircularProgressIndicator()))
             else if (_depenses.isEmpty)
-              const Expanded(child: Center(child: Text('Aucune dépense trouvée.')))
+              const Expanded(
+                child: Center(child: Text('Aucune dépense trouvée.')),
+              )
             else
               Expanded(
                 child: HorizontalTableScroller(
                   child: VerticalTableScroller(
                     child: DataTable(
-                      headingRowColor: WidgetStateProperty.all(const Color(0xFF1A237E).withValues(alpha: 0.08)),
+                      headingRowColor: WidgetStateProperty.all(
+                        const Color(0xFF1A237E).withValues(alpha: 0.08),
+                      ),
                       columnSpacing: 20,
-                      columns: const [
-                        DataColumn(label: Text('Actions')),
-                        DataColumn(label: Text('Date')),
-                        DataColumn(label: Text('Libellé')),
-                        DataColumn(label: Text('Montant')),
-                        DataColumn(label: Text('Monnaie')),
-                        DataColumn(label: Text('Statut')),
-                        DataColumn(label: Text('Exécutée')),
-                        DataColumn(label: Text('Validateur')),
-                        DataColumn(label: Text('Observation')),
+                      columns: [
+                        const DataColumn(label: Text('Actions')),
+                        const DataColumn(label: Text('Date')),
+                        if (widget.company == AppCompany.marian)
+                          const DataColumn(label: Text('N° Voyage')),
+                        const DataColumn(label: Text('Libellé')),
+                        const DataColumn(label: Text('Montant')),
+                        const DataColumn(label: Text('Monnaie')),
+                        const DataColumn(label: Text('Statut')),
+                        const DataColumn(label: Text('Exécutée')),
+                        const DataColumn(label: Text('Validateur')),
+                        const DataColumn(label: Text('Observation')),
                       ],
                       rows: _depenses.map((depense) {
                         final isEditing = _editingDepense?.uuid == depense.uuid;
                         return DataRow(
-                          color: WidgetStateProperty.resolveWith(
-                            (states) {
-                              if (isEditing) return const Color(0xFF1A237E).withValues(alpha: 0.06);
-                              if (depense.isDejaExecuter) return Colors.green.withValues(alpha: 0.07);
-                              return null;
-                            },
-                          ),
+                          color: WidgetStateProperty.resolveWith((states) {
+                            if (isEditing)
+                              return const Color(
+                                0xFF1A237E,
+                              ).withValues(alpha: 0.06);
+                            if (depense.isDejaExecuter)
+                              return Colors.green.withValues(alpha: 0.07);
+                            return null;
+                          }),
                           cells: [
                             DataCell(
                               Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    icon: const Icon(Icons.edit_outlined, color: Color(0xFF1A237E)),
+                                    icon: const Icon(
+                                      Icons.edit_outlined,
+                                      color: Color(0xFF1A237E),
+                                    ),
                                     tooltip: 'Modifier',
                                     onPressed: () => _startEdit(depense),
                                   ),
                                   IconButton(
-                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
                                     tooltip: 'Supprimer',
                                     onPressed: () => _confirmDelete(depense),
                                   ),
@@ -1115,16 +1229,33 @@ class _DepensesScreenState extends State<DepensesScreen> {
                               ),
                             ),
                             DataCell(Text(_formatDate(depense.date))),
+                            if (widget.company == AppCompany.marian)
+                              DataCell(Text(depense.numeroVoyage ?? '-')),
                             DataCell(Text(depense.libelle ?? '-')),
-                            DataCell(Text(depense.montant != null ? depense.montant!.toStringAsFixed(2) : '-')),
+                            DataCell(
+                              Text(
+                                depense.montant != null
+                                    ? depense.montant!.toStringAsFixed(2)
+                                    : '-',
+                              ),
+                            ),
                             DataCell(Text(depense.monnaieLabel)),
                             DataCell(
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: _statusColor(depense.valideValue).withValues(alpha: 0.15),
+                                  color: _statusColor(
+                                    depense.valideValue,
+                                  ).withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: _statusColor(depense.valideValue).withValues(alpha: 0.4)),
+                                  border: Border.all(
+                                    color: _statusColor(
+                                      depense.valideValue,
+                                    ).withValues(alpha: 0.4),
+                                  ),
                                 ),
                                 child: Text(
                                   depense.validationStatus,
@@ -1138,8 +1269,16 @@ class _DepensesScreenState extends State<DepensesScreen> {
                             ),
                             DataCell(
                               depense.isDejaExecuter
-                                  ? const Icon(Icons.check_circle_outline, color: Colors.green, size: 18)
-                                  : const Icon(Icons.radio_button_unchecked, color: Colors.grey, size: 18),
+                                  ? const Icon(
+                                      Icons.check_circle_outline,
+                                      color: Colors.green,
+                                      size: 18,
+                                    )
+                                  : const Icon(
+                                      Icons.radio_button_unchecked,
+                                      color: Colors.grey,
+                                      size: 18,
+                                    ),
                             ),
                             DataCell(Text(depense.validateurNom ?? '-')),
                             DataCell(Text(depense.observation ?? '-')),

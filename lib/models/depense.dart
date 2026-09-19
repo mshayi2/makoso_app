@@ -15,6 +15,7 @@ class DepenseRecord {
   final String? validateurNom;
   final String? typeDepense;
   final String? origineUuid;
+  final String? numeroVoyage;
   final int? dejaExecuter;
   final String? dossierUuid;
 
@@ -35,6 +36,7 @@ class DepenseRecord {
     this.validateurNom,
     this.typeDepense,
     this.origineUuid,
+    this.numeroVoyage,
     this.dejaExecuter,
     this.dossierUuid,
   });
@@ -68,6 +70,7 @@ class DepenseRecord {
       validateurNom: map['validateur_nom'] as String?,
       typeDepense: map['type_depense'] as String?,
       origineUuid: map['origine_uuid'] as String?,
+      numeroVoyage: map['numero_voyage'] as String?,
       dejaExecuter: (map['deja_executer'] as num?)?.toInt(),
       dossierUuid: map['dossier_uuid'] as String?,
     );

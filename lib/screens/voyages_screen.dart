@@ -33,6 +33,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
   final _dateVoyageCtrl = TextEditingController();
   final _lieuDepartCtrl = TextEditingController();
   final _lieuDestinationCtrl = TextEditingController();
+  final _numeroConteneurCtrl = TextEditingController();
   final _poidsConteneurCtrl = TextEditingController();
   final _natureMarchandiseCtrl = TextEditingController();
   final _dateDepartOrigineCtrl = TextEditingController();
@@ -40,7 +41,6 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
   final _dateDepartRetourCtrl = TextEditingController();
   final _dateArriverRetourCtrl = TextEditingController();
   final _natureMarchandiseRetourCtrl = TextEditingController();
-  final _nomClientRetourCtrl = TextEditingController();
   final _montantConvenuRetourCtrl = TextEditingController();
   final _montantCtrl = TextEditingController();
   final _searchCtrl = TextEditingController();
@@ -52,6 +52,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
   String? _selectedMonnaieUuid;
   String? _selectedStatut;
   String? _selectedClientUuid;
+  String? _selectedReturnClientName;
   String? _selectedDimensionConteneur;
 
   Voyage? _editingVoyage;
@@ -79,6 +80,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
     _dateVoyageCtrl.dispose();
     _lieuDepartCtrl.dispose();
     _lieuDestinationCtrl.dispose();
+    _numeroConteneurCtrl.dispose();
     _poidsConteneurCtrl.dispose();
     _natureMarchandiseCtrl.dispose();
     _dateDepartOrigineCtrl.dispose();
@@ -86,7 +88,6 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
     _dateDepartRetourCtrl.dispose();
     _dateArriverRetourCtrl.dispose();
     _natureMarchandiseRetourCtrl.dispose();
-    _nomClientRetourCtrl.dispose();
     _montantConvenuRetourCtrl.dispose();
     _montantCtrl.dispose();
     _searchCtrl.dispose();
@@ -133,16 +134,32 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
 
   List<Voyage> get _filteredVoyages {
     final q = _searchCtrl.text.trim().toLowerCase();
-    if (q.isEmpty) return _voyages;
-    return _voyages.where((v) {
-      return (v.numeroVoyage ?? '').toLowerCase().contains(q) ||
-          (v.lieuDepart ?? '').toLowerCase().contains(q) ||
-          (v.lieuDestination ?? '').toLowerCase().contains(q) ||
-          (v.statut ?? '').toLowerCase().contains(q) ||
-          _camionLabel(v.camionUuid).toLowerCase().contains(q) ||
-          _personLabel(v.chauffeurUuid).toLowerCase().contains(q);
-    }).toList();
+    final filtered = q.isEmpty
+        ? _voyages
+        : _voyages.where((v) {
+            return (v.numeroVoyage ?? '').toLowerCase().contains(q) ||
+                (v.lieuDepart ?? '').toLowerCase().contains(q) ||
+                (v.lieuDestination ?? '').toLowerCase().contains(q) ||
+                (v.statut ?? '').toLowerCase().contains(q) ||
+                _camionLabel(v.camionUuid).toLowerCase().contains(q) ||
+                _personLabel(v.chauffeurUuid).toLowerCase().contains(q);
+          }).toList();
+    return [...filtered]..sort((a, b) {
+      final aNumber = a.numeroVoyage?.trim();
+      final bNumber = b.numeroVoyage?.trim();
+      if (aNumber == null || aNumber.isEmpty) return 1;
+      if (bNumber == null || bNumber.isEmpty) return -1;
+      return aNumber.toLowerCase().compareTo(bNumber.toLowerCase());
+    });
   }
+
+  List<String> get _returnClientNames =>
+      _marinaClients
+          .map((client) => client.nom.trim())
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
   String _camionLabel(String? uuid) {
     if (uuid == null) return '-';
@@ -163,6 +180,40 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
   String _monnaieLabel(String? uuid) {
     if (uuid == null) return '-';
     return _monnaies.where((m) => m.uuid == uuid).firstOrNull?.label ?? '-';
+  }
+
+  String _clientLabel(String? uuid) {
+    if (uuid == null) return '-';
+    return _marinaClients.where((c) => c.uuid == uuid).firstOrNull?.nom ?? '-';
+  }
+
+  String? _containerDimension(String? storedValue) {
+    final value = storedValue?.trim();
+    if (value == null || value.isEmpty) return null;
+    final separatorIndex = value.indexOf('|');
+    final dimension = separatorIndex < 0
+        ? value
+        : value.substring(0, separatorIndex).trim();
+    return dimension.isEmpty ? null : dimension;
+  }
+
+  String? _containerNumber(String? storedValue) {
+    final value = storedValue?.trim();
+    if (value == null || value.isEmpty) return null;
+    final separatorIndex = value.indexOf('|');
+    if (separatorIndex < 0) return null;
+    final number = value.substring(separatorIndex + 1).trim();
+    return number.isEmpty ? null : number;
+  }
+
+  String? _storedContainerValue() {
+    if (widget.company != AppCompany.marian) {
+      return _selectedDimensionConteneur;
+    }
+    final dimension = _selectedDimensionConteneur?.trim() ?? '';
+    final number = _numeroConteneurCtrl.text.trim();
+    if (dimension.isEmpty && number.isEmpty) return null;
+    return '$dimension|$number';
   }
 
   String _formatDate(String? iso) {
@@ -200,10 +251,11 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
       _dateVoyageCtrl.text = v.dateVoyage ?? '';
       _lieuDepartCtrl.text = v.lieuDepart ?? '';
       _lieuDestinationCtrl.text = v.lieuDestination ?? '';
-      _selectedDimensionConteneur =
-          _kDimensionsConteneur.contains(v.dimensionConteneur)
-          ? v.dimensionConteneur
+      final dimension = _containerDimension(v.dimensionConteneur);
+      _selectedDimensionConteneur = _kDimensionsConteneur.contains(dimension)
+          ? dimension
           : null;
+      _numeroConteneurCtrl.text = _containerNumber(v.dimensionConteneur) ?? '';
       _poidsConteneurCtrl.text = v.poidsConteneur?.toString() ?? '';
       _natureMarchandiseCtrl.text = v.natureMarchandise ?? '';
       _dateDepartOrigineCtrl.text = v.dateDepartOrigine ?? '';
@@ -211,7 +263,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
       _dateDepartRetourCtrl.text = v.dateDepartRetour ?? '';
       _dateArriverRetourCtrl.text = v.dateArriverRetour ?? '';
       _natureMarchandiseRetourCtrl.text = v.natureMarchandiseRetour ?? '';
-      _nomClientRetourCtrl.text = v.nomClientRetour ?? '';
+      _selectedReturnClientName = v.nomClientRetour;
       _montantConvenuRetourCtrl.text = v.montantConvenuRetour?.toString() ?? '';
       _montantCtrl.text = v.montantConvenu != null
           ? v.montantConvenu.toString()
@@ -243,6 +295,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
       _dateVoyageCtrl.clear();
       _lieuDepartCtrl.clear();
       _lieuDestinationCtrl.clear();
+      _numeroConteneurCtrl.clear();
       _poidsConteneurCtrl.clear();
       _natureMarchandiseCtrl.clear();
       _dateDepartOrigineCtrl.clear();
@@ -250,7 +303,6 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
       _dateDepartRetourCtrl.clear();
       _dateArriverRetourCtrl.clear();
       _natureMarchandiseRetourCtrl.clear();
-      _nomClientRetourCtrl.clear();
       _montantConvenuRetourCtrl.clear();
       _montantCtrl.clear();
       _selectedCamionUuid = null;
@@ -259,6 +311,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
       _selectedMonnaieUuid = null;
       _selectedStatut = null;
       _selectedClientUuid = null;
+      _selectedReturnClientName = null;
       _selectedDimensionConteneur = null;
     });
     _refreshNextVoyageNumber();
@@ -295,7 +348,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
           dateVoyage: _emptyToNull(_dateVoyageCtrl.text),
           lieuDepart: _emptyToNull(_lieuDepartCtrl.text),
           lieuDestination: _emptyToNull(_lieuDestinationCtrl.text),
-          dimensionConteneur: _selectedDimensionConteneur,
+          dimensionConteneur: _storedContainerValue(),
           poidsConteneur: poidsConteneur,
           natureMarchandise: _emptyToNull(_natureMarchandiseCtrl.text),
           dateDepartOrigine: _emptyToNull(_dateDepartOrigineCtrl.text),
@@ -307,7 +360,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
           natureMarchandiseRetour: _emptyToNull(
             _natureMarchandiseRetourCtrl.text,
           ),
-          nomClientRetour: _emptyToNull(_nomClientRetourCtrl.text),
+          nomClientRetour: _selectedReturnClientName,
           montantConvenuRetour: montantConvenuRetour,
           montantConvenu: montant,
           monnaieUuid: _selectedMonnaieUuid,
@@ -323,7 +376,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
           dateVoyage: _emptyToNull(_dateVoyageCtrl.text),
           lieuDepart: _emptyToNull(_lieuDepartCtrl.text),
           lieuDestination: _emptyToNull(_lieuDestinationCtrl.text),
-          dimensionConteneur: _selectedDimensionConteneur,
+          dimensionConteneur: _storedContainerValue(),
           poidsConteneur: poidsConteneur,
           natureMarchandise: _emptyToNull(_natureMarchandiseCtrl.text),
           dateDepartOrigine: _emptyToNull(_dateDepartOrigineCtrl.text),
@@ -335,7 +388,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
           natureMarchandiseRetour: _emptyToNull(
             _natureMarchandiseRetourCtrl.text,
           ),
-          nomClientRetour: _emptyToNull(_nomClientRetourCtrl.text),
+          nomClientRetour: _selectedReturnClientName,
           montantConvenuRetour: montantConvenuRetour,
           montantConvenu: montant,
           monnaieUuid: _selectedMonnaieUuid,
@@ -474,6 +527,278 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('Voyage validé : $numero')));
     }
+  }
+
+  Future<void> _showVoyageDetails(Voyage voyage) async {
+    final financialRows = await AppDatabase.instance.getVoyageFinancialRows(
+      voyage.uuid,
+    );
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.local_shipping_outlined, color: Color(0xFF1A237E)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Détails – ${voyage.numeroVoyage ?? voyage.uuid}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 760,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _detailSectionTitle('Situation financière'),
+                Table(
+                  columnWidths: const {
+                    0: FlexColumnWidth(2),
+                    1: FlexColumnWidth(3),
+                  },
+                  children: [
+                    _detailRow(
+                      'Montant convenu',
+                      _formatMoney(voyage.montantConvenu, voyage.monnaieUuid),
+                      bold: true,
+                    ),
+                  ],
+                ),
+                if (financialRows.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      'Aucun mouvement financier pour ce voyage.',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  )
+                else
+                  DataTable(
+                    headingRowColor: WidgetStateProperty.all(
+                      const Color(0xFF1A237E).withValues(alpha: 0.08),
+                    ),
+                    columns: const [
+                      DataColumn(
+                        label: Text(
+                          'Monnaie',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Total dépôts',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        numeric: true,
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Total dépenses',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        numeric: true,
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Solde',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        numeric: true,
+                      ),
+                    ],
+                    rows: financialRows.map((row) {
+                      final depot =
+                          (row['total_depot'] as num?)?.toDouble() ?? 0;
+                      final depense =
+                          (row['total_depense'] as num?)?.toDouble() ?? 0;
+                      final currency =
+                          row['monnaie_sigle']?.toString().trim().isNotEmpty ==
+                              true
+                          ? row['monnaie_sigle'].toString()
+                          : row['monnaie_nom']?.toString() ?? '-';
+                      const financialStyle = TextStyle(
+                        fontWeight: FontWeight.w700,
+                      );
+                      return DataRow(
+                        cells: [
+                          DataCell(Text(currency, style: financialStyle)),
+                          DataCell(
+                            Text(
+                              depot.toStringAsFixed(2),
+                              style: financialStyle,
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              depense.toStringAsFixed(2),
+                              style: financialStyle,
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              (depot - depense).toStringAsFixed(2),
+                              style: financialStyle,
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                const SizedBox(height: 20),
+                _detailSectionTitle('Informations du voyage'),
+                Table(
+                  columnWidths: const {
+                    0: FlexColumnWidth(2),
+                    1: FlexColumnWidth(3),
+                  },
+                  children: [
+                    _detailRow('Numéro de voyage', voyage.numeroVoyage),
+                    _detailRow(
+                      'Validation',
+                      voyage.valide == 1 ? 'Validé' : 'En attente',
+                    ),
+                    _detailRow('Client', _clientLabel(voyage.clientUuid)),
+                    _detailRow(
+                      'Date du voyage',
+                      _formatDate(voyage.dateVoyage),
+                    ),
+                    _detailRow('Lieu de départ', voyage.lieuDepart),
+                    _detailRow('Lieu de destination', voyage.lieuDestination),
+                    _detailRow('Camion', _camionLabel(voyage.camionUuid)),
+                    _detailRow('Chauffeur', _personLabel(voyage.chauffeurUuid)),
+                    _detailRow('Convoyeur', _personLabel(voyage.convoyeurUuid)),
+                    _detailRow(
+                      'Dimension du conteneur',
+                      _containerDimension(voyage.dimensionConteneur),
+                    ),
+                    _detailRow(
+                      'Numéro du conteneur',
+                      _containerNumber(voyage.dimensionConteneur),
+                    ),
+                    _detailRow(
+                      'Poids du conteneur',
+                      voyage.poidsConteneur == null
+                          ? null
+                          : '${voyage.poidsConteneur} kg',
+                    ),
+                    _detailRow(
+                      'Nature de la marchandise',
+                      voyage.natureMarchandise,
+                    ),
+                    _detailRow('Statut', voyage.statut),
+                    _detailRow(
+                      'Montant convenu',
+                      _formatMoney(voyage.montantConvenu, voyage.monnaieUuid),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                _detailSectionTitle('Trajet retour'),
+                Table(
+                  columnWidths: const {
+                    0: FlexColumnWidth(2),
+                    1: FlexColumnWidth(3),
+                  },
+                  children: [
+                    _detailRow(
+                      'Date départ origine',
+                      _formatDate(voyage.dateDepartOrigine),
+                    ),
+                    _detailRow(
+                      'Date arrivée destination',
+                      _formatDate(voyage.dateArriverDestination),
+                    ),
+                    _detailRow(
+                      'Date départ retour',
+                      _formatDate(voyage.dateDepartRetour),
+                    ),
+                    _detailRow(
+                      'Date arrivée retour',
+                      _formatDate(voyage.dateArriverRetour),
+                    ),
+                    _detailRow(
+                      'Nature de la marchandise retour',
+                      voyage.natureMarchandiseRetour,
+                    ),
+                    _detailRow('Client retour', voyage.nomClientRetour),
+                    _detailRow(
+                      'Montant convenu retour',
+                      _formatMoney(
+                        voyage.montantConvenuRetour,
+                        voyage.monnaieUuid,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fermer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Color(0xFF1A237E),
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  TableRow _detailRow(String label, Object? value, {bool bold = false}) {
+    final text = value?.toString();
+    return TableRow(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+              color: Color(0xFF1A237E),
+              fontSize: 13,
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+          child: Text(
+            text == null || text.isEmpty ? '-' : text,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: bold ? FontWeight.w700 : FontWeight.normal,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String? _formatMoney(double? amount, String? currencyUuid) {
+    if (amount == null) return null;
+    return '${amount.toStringAsFixed(2)} ${_monnaieLabel(currencyUuid)}';
   }
 
   Future<void> _showScanVoyageDialog(Voyage voyage) async {
@@ -1135,6 +1460,14 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
             setState(() => _selectedDimensionConteneur = value),
       ),
       TextFormField(
+        controller: _numeroConteneurCtrl,
+        decoration: const InputDecoration(
+          labelText: 'Numéro du conteneur',
+          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.inventory_2_outlined),
+        ),
+      ),
+      TextFormField(
         controller: _poidsConteneurCtrl,
         decoration: const InputDecoration(
           labelText: 'Poids du conteneur',
@@ -1164,13 +1497,28 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
           prefixIcon: Icon(Icons.category_outlined),
         ),
       ),
-      TextFormField(
-        controller: _nomClientRetourCtrl,
+      DropdownButtonFormField<String>(
+        key: ValueKey(_selectedReturnClientName),
+        initialValue: _selectedReturnClientName,
+        isExpanded: true,
         decoration: const InputDecoration(
           labelText: 'Nom du client retour',
           border: OutlineInputBorder(),
           prefixIcon: Icon(Icons.person_outline),
         ),
+        items: [
+          const DropdownMenuItem(value: null, child: Text('— Aucun —')),
+          ...{
+            ..._returnClientNames,
+            if (_selectedReturnClientName != null) _selectedReturnClientName!,
+          }.map(
+            (name) => DropdownMenuItem(
+              value: name,
+              child: Text(name, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+        onChanged: (value) => setState(() => _selectedReturnClientName = value),
       ),
       if (!_isOpLogistique)
         TextFormField(
@@ -1446,7 +1794,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
               controller: _searchCtrl,
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
-                hintText: 'Rechercher...',
+                hintText: 'Rechercher par numéro de voyage, lieu, statut...',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _searchCtrl.text.isNotEmpty
                     ? IconButton(
@@ -1467,6 +1815,10 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
             else
               Expanded(
                 child: HorizontalTableScroller(
+                  toolbarLeading: Text(
+                    'Total : ${_voyages.length} voyages',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   child: SingleChildScrollView(
                     child: DataTable(
                       headingRowColor: WidgetStateProperty.all(
@@ -1489,6 +1841,12 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                       ],
                       rows: _filteredVoyages.map((v) {
                         final isEditing = _editingVoyage?.uuid == v.uuid;
+                        DataCell detailCell(Widget child) => DataCell(
+                          child,
+                          onDoubleTap: widget.company == AppCompany.marian
+                              ? () => _showVoyageDetails(v)
+                              : null,
+                        );
                         return DataRow(
                           color: WidgetStateProperty.resolveWith(
                             (states) => isEditing
@@ -1538,8 +1896,8 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                                 ],
                               ),
                             ),
-                            DataCell(Text(v.numeroVoyage ?? '-')),
-                            DataCell(
+                            detailCell(Text(v.numeroVoyage ?? '-')),
+                            detailCell(
                               v.valide == 1
                                   ? const Icon(
                                       Icons.verified_rounded,
@@ -1552,21 +1910,21 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                                       size: 18,
                                     ),
                             ),
-                            DataCell(Text(_formatDate(v.dateVoyage))),
-                            DataCell(Text(v.lieuDepart ?? '-')),
-                            DataCell(Text(v.lieuDestination ?? '-')),
-                            DataCell(Text(_camionLabel(v.camionUuid))),
-                            DataCell(Text(_personLabel(v.chauffeurUuid))),
-                            DataCell(Text(_personLabel(v.convoyeurUuid))),
+                            detailCell(Text(_formatDate(v.dateVoyage))),
+                            detailCell(Text(v.lieuDepart ?? '-')),
+                            detailCell(Text(v.lieuDestination ?? '-')),
+                            detailCell(Text(_camionLabel(v.camionUuid))),
+                            detailCell(Text(_personLabel(v.chauffeurUuid))),
+                            detailCell(Text(_personLabel(v.convoyeurUuid))),
                             if (!_isOpLogistique)
-                              DataCell(
+                              detailCell(
                                 Text(
                                   v.montantConvenu != null
                                       ? '${v.montantConvenu!.toStringAsFixed(2)} ${_monnaieLabel(v.monnaieUuid)}'
                                       : '-',
                                 ),
                               ),
-                            DataCell(
+                            detailCell(
                               v.statut != null
                                   ? Container(
                                       padding: const EdgeInsets.symmetric(
