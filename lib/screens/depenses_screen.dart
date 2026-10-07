@@ -185,6 +185,18 @@ class _DepensesScreenState extends State<DepensesScreen> {
     return conteneurUuid == null ? dossierUuid : '$dossierUuid|$conteneurUuid';
   }
 
+  bool _isVoyageOrigineType(String? type) => type == 'Voyage Camion';
+
+  bool _isCamionOrigineType(String? type) {
+    return type == 'Retour Camion avec Charge' ||
+        type == 'Panne Camion' ||
+        type == 'Entretien Camion';
+  }
+
+  bool _requiresOrigine(String? type) {
+    return _isVoyageOrigineType(type) || _isCamionOrigineType(type);
+  }
+
   Future<void> _loadOrigineOptions({String? includeOrigineUuid}) async {
     if (widget.company != AppCompany.marian) return;
     final type = _selectedTypeDepense;
@@ -197,12 +209,12 @@ class _DepensesScreenState extends State<DepensesScreen> {
       return;
     }
     List<DepotSourceOption> options;
-    if (type == 'Voyage Camion') {
+    if (_isVoyageOrigineType(type)) {
       options = await AppDatabase.instance.getDepotSourceOptions(
         'Voyage Camion',
         includeSourceUuid: includeOrigineUuid,
       );
-    } else {
+    } else if (_isCamionOrigineType(type)) {
       final camions = await AppDatabase.instance.getAllCamions();
       options = camions.map((c) {
         final label = [
@@ -215,12 +227,16 @@ class _DepensesScreenState extends State<DepensesScreen> {
           statut: null,
         );
       }).toList();
+    } else {
+      options = [];
     }
     if (!mounted) return;
     setState(() {
       _origineOptions = options;
-      if (includeOrigineUuid != null &&
-          !options.any((o) => o.uuid == includeOrigineUuid)) {
+      if (!_requiresOrigine(type)) {
+        _selectedOrigineUuid = null;
+      } else if (includeOrigineUuid != null &&
+          options.any((o) => o.uuid == includeOrigineUuid)) {
         _selectedOrigineUuid = includeOrigineUuid;
       } else if (!options.any((o) => o.uuid == _selectedOrigineUuid)) {
         _selectedOrigineUuid = null;
@@ -750,6 +766,11 @@ class _DepensesScreenState extends State<DepensesScreen> {
                       value: 'Entretien Camion',
                       child: Text('Entretien Camion'),
                     ),
+                    DropdownMenuItem(
+                      value: 'Remuneration du personnel',
+                      child: Text('Remuneration du personnel'),
+                    ),
+                    DropdownMenuItem(value: 'Autres', child: Text('Autres')),
                   ],
                   validator: (v) => v == null ? 'Champ requis' : null,
                   onChanged: (value) async {
@@ -765,16 +786,24 @@ class _DepensesScreenState extends State<DepensesScreen> {
               SizedBox(
                 width: fieldWidth,
                 child: DropdownButtonFormField<String>(
-                  value: _selectedOrigineUuid,
+                  value: _origineOptions.any(
+                    (o) => o.uuid == _selectedOrigineUuid,
+                  )
+                      ? _selectedOrigineUuid
+                      : null,
                   decoration: InputDecoration(
-                    labelText: _selectedTypeDepense == 'Voyage Camion'
+                    labelText: _isVoyageOrigineType(_selectedTypeDepense)
                         ? 'Voyage *'
-                        : 'Camion *',
+                        : _isCamionOrigineType(_selectedTypeDepense)
+                        ? 'Camion *'
+                        : 'Voyage/Camion (non requis)',
                     border: const OutlineInputBorder(),
                     prefixIcon: Icon(
-                      _selectedTypeDepense == 'Voyage Camion'
+                      _isVoyageOrigineType(_selectedTypeDepense)
                           ? Icons.local_shipping_outlined
-                          : Icons.directions_car_outlined,
+                          : _isCamionOrigineType(_selectedTypeDepense)
+                          ? Icons.directions_car_outlined
+                          : Icons.link_off_outlined,
                     ),
                   ),
                   items: _origineOptions
@@ -785,9 +814,17 @@ class _DepensesScreenState extends State<DepensesScreen> {
                         ),
                       )
                       .toList(),
-                  validator: (v) => v == null ? 'Champ requis' : null,
-                  onChanged: (value) =>
-                      setState(() => _selectedOrigineUuid = value),
+                  validator: (_) {
+                    if (_requiresOrigine(_selectedTypeDepense) &&
+                        _selectedOrigineUuid == null) {
+                      return 'Champ requis';
+                    }
+                    return null;
+                  },
+                  onChanged: _requiresOrigine(_selectedTypeDepense)
+                      ? (value) =>
+                            setState(() => _selectedOrigineUuid = value)
+                      : null,
                 ),
               ),
             ],

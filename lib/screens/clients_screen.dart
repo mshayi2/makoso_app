@@ -35,6 +35,11 @@ class _ClientsScreenState extends State<ClientsScreen> {
         role == 'gestionnaire kinshasa';
   }
 
+  bool get _canAdd {
+    final role = widget.user.role?.toLowerCase().trim() ?? '';
+    return _canEdit || role == 'collaborateur';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -91,10 +96,14 @@ class _ClientsScreenState extends State<ClientsScreen> {
   }
 
   Future<void> _save() async {
-    if (!_canEdit) return;
+    final isEditing = _editingClient != null;
+    if (isEditing) {
+      if (!_canEdit) return;
+    } else {
+      if (!_canAdd) return;
+    }
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSaving = true);
-    final isEditing = _editingClient != null;
     try {
       if (isEditing) {
         await AppDatabase.instance.updateClient(
@@ -232,7 +241,15 @@ class _ClientsScreenState extends State<ClientsScreen> {
                         children: [
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: (_canEdit && !_isSaving) ? _save : null,
+                              onPressed:
+                                  ((
+                                        _editingClient != null
+                                            ? _canEdit
+                                            : _canAdd
+                                      ) &&
+                                      !_isSaving)
+                                  ? _save
+                                  : null,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF1A237E),
                                 foregroundColor: Colors.white,
