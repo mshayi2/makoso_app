@@ -103,18 +103,17 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
 
   List<Map<String, Object?>> _financialRows = [];
   int _pendingDepenses = 0;
-  List<Map<String, Object?>> _pendingDepensesList = [];
-  List<Map<String, Object?>> _dossiersEnSouffrance = [];
+  List<Map<String, Object?>> _dossiers = [];
 
   final _dossierSearchCtrl = TextEditingController();
-  bool _dossierSearching = false;
-  Map<String, Object?>? _dossierResult;
-  bool _dossierSearched = false;
 
-  final _conteneurSearchCtrl = TextEditingController();
-  bool _conteneurSearching = false;
-  List<Map<String, Object?>> _conteneurResults = [];
-  bool _conteneurSearched = false;
+  List<Map<String, Object?>> get _filteredDossiers {
+    final query = _dossierSearchCtrl.text.trim().toLowerCase();
+    return _dossiers.where((dossier) => query.isEmpty ||
+        (dossier['numero_bl']?.toString() ?? '').toLowerCase().contains(query) ||
+        (dossier['numeros_conteneurs']?.toString() ?? '')
+            .toLowerCase().contains(query)).toList();
+  }
 
   bool _syncInProgress = false;
   StreamSubscription<SyncNotification>? _syncSub;
@@ -135,7 +134,6 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
   void dispose() {
     _syncSub?.cancel();
     _dossierSearchCtrl.dispose();
-    _conteneurSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -145,15 +143,13 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
     final results = await Future.wait([
       db.getMakosoDashboardFinancialRows(),
       db.getMakosoPendingDepenseCount(),
-      db.getMakosoPendingDepenses(),
-      db.getDossiersEnSouffrance(),
+      db.getMakosoDossierSummaryRows(),
     ]);
     if (!mounted) return;
     setState(() {
       _financialRows = results[0] as List<Map<String, Object?>>;
       _pendingDepenses = results[1] as int;
-      _pendingDepensesList = results[2] as List<Map<String, Object?>>;
-      _dossiersEnSouffrance = results[3] as List<Map<String, Object?>>;
+      _dossiers = results[2] as List<Map<String, Object?>>;
       _loading = false;
     });
   }
@@ -230,40 +226,6 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('Dépense rejetée.')));
     _load();
-  }
-
-  Future<void> _searchConteneur() async {
-    final q = _conteneurSearchCtrl.text.trim();
-    if (q.isEmpty) return;
-    setState(() {
-      _conteneurSearching = true;
-      _conteneurResults = [];
-      _conteneurSearched = false;
-    });
-    final results = await AppDatabase.instance.searchConteneurs(q);
-    if (!mounted) return;
-    setState(() {
-      _conteneurResults = results;
-      _conteneurSearching = false;
-      _conteneurSearched = true;
-    });
-  }
-
-  Future<void> _searchDossier() async {
-    final query = _dossierSearchCtrl.text.trim();
-    if (query.isEmpty) return;
-    setState(() {
-      _dossierSearching = true;
-      _dossierResult = null;
-      _dossierSearched = false;
-    });
-    final result = await AppDatabase.instance.searchMakosoDossierDetails(query);
-    if (!mounted) return;
-    setState(() {
-      _dossierResult = result;
-      _dossierSearching = false;
-      _dossierSearched = true;
-    });
   }
 
   Future<void> _viewScanBl(Map<String, Object?> scan) async {
@@ -419,88 +381,66 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
 
                         const SizedBox(height: 28),
 
-                        // ── Dépenses en attente ──────────────────────────
-                        _SectionHeader(
-                          icon: Icons.hourglass_top_rounded,
-                          label: 'Dépenses en attente de validation',
-                          iconColor: const Color(0xFFD97706),
-                          badgeColor: const Color(0xFFFFFBEB),
-                          badge: _pendingDepenses > 0
-                              ? '$_pendingDepenses'
-                              : null,
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.hourglass_top_rounded,
+                              color: Color(0xFFD97706)),
+                          title: const Text('Dépenses en attente de validation'),
+                          subtitle: Text('$_pendingDepenses dépense(s)'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () async {
+                            await Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => _MakosoPendingExpensesScreen(
+                                onValider: _validerDepense,
+                                onRejeter: _rejeterDepense,
+                              ),
+                            ));
+                            if (mounted) _load();
+                          },
                         ),
-                        const SizedBox(height: 12),
-                        if (_pendingDepensesList.isEmpty)
-                          _EmptyState(
-                            icon: Icons.check_circle_rounded,
-                            iconColor: const Color(0xFF10B981),
-                            message: 'Aucune dépense en attente.',
-                          )
-                        else
-                          _PendingDepensesList(
-                            depenses: _pendingDepensesList,
-                            onValider: _validerDepense,
-                            onRejeter: _rejeterDepense,
-                          ),
-
                         const SizedBox(height: 28),
-
                         _SectionHeader(
                           icon: Icons.folder_open_rounded,
-                          label: 'Recherche dossier par numéro BL',
+                          label: 'Liste des dossiers',
                           iconColor: const Color(0xFF0F766E),
                           badgeColor: const Color(0xFFF0FDFA),
+                          badge: '${_filteredDossiers.length}',
                         ),
                         const SizedBox(height: 12),
-                        _DossierSearchSection(
+                        TextField(
                           controller: _dossierSearchCtrl,
-                          onSearch: _searchDossier,
-                          searching: _dossierSearching,
-                          result: _dossierResult,
-                          searched: _dossierSearched,
-                          onViewScan: _viewScanBl,
-                        ),
-
-                        const SizedBox(height: 28),
-
-                        // ── Recherche conteneur ──────────────────────────
-                        _SectionHeader(
-                          icon: Icons.search_rounded,
-                          label: 'Recherche conteneur',
-                          iconColor: const Color(0xFF8B5CF6),
-                          badgeColor: const Color(0xFFF5F3FF),
-                        ),
-                        const SizedBox(height: 12),
-                        _ConteneurSearchSection(
-                          controller: _conteneurSearchCtrl,
-                          onSearch: _searchConteneur,
-                          searching: _conteneurSearching,
-                          results: _conteneurResults,
-                          searched: _conteneurSearched,
-                        ),
-
-                        const SizedBox(height: 28),
-
-                        // ── Dossiers en souffrance ───────────────────────
-                        _SectionHeader(
-                          icon: Icons.warning_amber_rounded,
-                          label: 'Dossiers en souffrance',
-                          iconColor: const Color(0xFFEF4444),
-                          badgeColor: const Color(0xFFFEF2F2),
-                          badge: _dossiersEnSouffrance.isEmpty
-                              ? null
-                              : '${_dossiersEnSouffrance.length}',
-                        ),
-                        const SizedBox(height: 12),
-                        if (_dossiersEnSouffrance.isEmpty)
-                          _EmptyState(
-                            icon: Icons.check_circle_rounded,
-                            iconColor: const Color(0xFF10B981),
-                            message: 'Aucun dossier en souffrance.',
+                          onChanged: (_) => setState(() {}),
+                          decoration: InputDecoration(
+                            hintText: 'Rechercher par BL ou numéro de conteneur...',
+                            prefixIcon: const Icon(Icons.search),
+                            suffixIcon: _dossierSearchCtrl.text.isEmpty ? null
+                                : IconButton(
+                                    tooltip: 'Effacer la recherche',
+                                    onPressed: () => setState(_dossierSearchCtrl.clear),
+                                    icon: const Icon(Icons.clear),
+                                  ),
+                            border: const OutlineInputBorder(),
+                            isDense: true,
                           )
-                        else
-                          _DossiersSouffranceList(
-                              dossiers: _dossiersEnSouffrance),
+                        ),
+                        const SizedBox(height: 12),
+                        if (_filteredDossiers.isEmpty)
+                          const _EmptyState(
+                            icon: Icons.folder_off_outlined,
+                            message: 'Aucun dossier trouvé.',
+                          ),
+                        for (final dossier in _filteredDossiers) ...[
+                          _MakosoDossierCard(
+                            key: ValueKey(dossier['uuid']),
+                            dossier: dossier,
+                            onDetails: () => Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => _MakosoDossierDetailsScreen(
+                                dossier: dossier, onViewScan: _viewScanBl,
+                              )),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
                       ],
                     ),
                   ),
@@ -512,6 +452,280 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
 }
 
 // ─── Header ──────────────────────────────────────────────────────────────────
+
+class _MakosoDossierCard extends StatelessWidget {
+  final Map<String, Object?> dossier;
+  final VoidCallback onDetails;
+
+  const _MakosoDossierCard({super.key, required this.dossier, required this.onDetails});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: cs.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: cs.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        initiallyExpanded: false,
+        shape: const Border(),
+        collapsedShape: const Border(),
+        leading: const Icon(Icons.folder_outlined, color: Color(0xFF0F766E)),
+        title: Text('Dossier / BL : ${dossier['numero_bl'] ?? dossier['id'] ?? '-'}'),
+        subtitle: Text('${dossier['client_nom'] ?? '-'}\n'
+            '${dossier['nb_conteneurs'] ?? 0} conteneur(s)'),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          const Divider(),
+          _MakosoDossierAmounts(dossier: dossier),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onDetails,
+              icon: const Icon(Icons.open_in_new),
+              label: const Text('Voir le détail'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MakosoDossierAmounts extends StatelessWidget {
+  final Map<String, Object?> dossier;
+
+  const _MakosoDossierAmounts({required this.dossier});
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = NumberFormat('#,##0.00', 'fr_FR');
+    final balances = ((dossier['financial_rows'] as List?) ?? const [])
+      .map((row) => Map<String, Object?>.from(row as Map)).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _DossierDetailValue(
+          label: 'Montant convenu',
+          value: fmt.format((dossier['montant_convenu'] as num?) ?? 0),
+        ),
+        const SizedBox(height: 12),
+        for (final balance in balances.isEmpty
+            ? [<String, Object?>{'total_depot': 0, 'total_depense': 0}]
+            : balances) ...[
+          LayoutBuilder(builder: (context, constraints) {
+            final depot = (balance['total_depot'] as num?)?.toDouble() ?? 0;
+            final depense = (balance['total_depense'] as num?)?.toDouble() ?? 0;
+            final currency = balance['monnaie_sigle']?.toString() ??
+                balance['monnaie_nom']?.toString() ??
+                (balance['monnaie_uuid'] == null ? '' : 'Devise inconnue');
+            final columns = constraints.maxWidth < 600 ||
+                MediaQuery.textScalerOf(context).scale(14) > 20 ? 1 : 3;
+            final width = (constraints.maxWidth - (columns - 1) * 16) / columns;
+            return Wrap(
+              spacing: 16,
+              runSpacing: 12,
+              children: [
+                for (final metric in [
+                  ('Total dépôts', depot, const Color(0xFF15803D)),
+                  ('Dépenses validées', depense, const Color(0xFFDC2626)),
+                  ('Solde', depot - depense, depot >= depense
+                      ? const Color(0xFF15803D) : const Color(0xFFDC2626)),
+                ])
+                  SizedBox(
+                    width: width,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(metric.$1, style: Theme.of(context).textTheme.labelMedium),
+                        const SizedBox(height: 4),
+                        Text('${fmt.format(metric.$2)} $currency'.trim(),
+                            style: TextStyle(color: metric.$3, fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+          }),
+          const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+}
+
+class _MakosoPendingExpensesScreen extends StatefulWidget {
+  final Future<void> Function(Map<String, Object?>) onValider;
+  final Future<void> Function(Map<String, Object?>) onRejeter;
+
+  const _MakosoPendingExpensesScreen({required this.onValider, required this.onRejeter});
+
+  @override
+  State<_MakosoPendingExpensesScreen> createState() => _MakosoPendingExpensesScreenState();
+}
+
+class _MakosoPendingExpensesScreenState extends State<_MakosoPendingExpensesScreen> {
+  late Future<List<Map<String, Object?>>> _expenses;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _expenses = AppDatabase.instance.getMakosoPendingDepenses();
+  }
+
+  void _refresh() {
+    setState(() {
+      _expenses = AppDatabase.instance.getMakosoPendingDepenses();
+    });
+  }
+
+  Future<void> _act(Map<String, Object?> expense,
+      Future<void> Function(Map<String, Object?>) action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await action(expense);
+      if (mounted) _refresh();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Impossible de traiter la dépense : $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Dépenses en attente de validation'),
+        actions: [IconButton(
+          tooltip: 'Actualiser', onPressed: _busy ? null : _refresh,
+          icon: const Icon(Icons.refresh),
+        )],
+      ),
+      body: Column(children: [
+        if (_busy) const LinearProgressIndicator(),
+        Expanded(child: FutureBuilder<List<Map<String, Object?>>>(
+          future: _expenses,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(child: TextButton.icon(
+                onPressed: _refresh, icon: const Icon(Icons.refresh),
+                label: const Text('Chargement impossible. Réessayer'),
+              ));
+            }
+            final expenses = snapshot.data ?? [];
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: AbsorbPointer(
+                absorbing: _busy,
+                child: expenses.isEmpty
+                    ? const _EmptyState(icon: Icons.check_circle_outline,
+                        message: 'Aucune dépense en attente.')
+                    : _PendingDepensesList(
+                        depenses: expenses,
+                        onValider: (expense) => _act(expense, widget.onValider),
+                        onRejeter: (expense) => _act(expense, widget.onRejeter),
+                      ),
+              ),
+            );
+          },
+        )),
+      ]),
+    );
+  }
+}
+
+class _MakosoDossierDetailsScreen extends StatefulWidget {
+  final Map<String, Object?> dossier;
+  final Future<void> Function(Map<String, Object?>) onViewScan;
+
+  const _MakosoDossierDetailsScreen({required this.dossier, required this.onViewScan});
+
+  @override
+  State<_MakosoDossierDetailsScreen> createState() => _MakosoDossierDetailsScreenState();
+}
+
+class _MakosoDossierDetailsScreenState extends State<_MakosoDossierDetailsScreen> {
+  late Future<Map<String, Object?>?> _details;
+
+  @override
+  void initState() {
+    super.initState();
+    _details = _load();
+  }
+
+  Future<Map<String, Object?>?> _load() async {
+    final uuid = widget.dossier['uuid'] as String;
+    final details = await AppDatabase.instance.searchMakosoDossierDetails('', dossierUuid: uuid);
+    if (details == null) return null;
+    final summaries = await AppDatabase.instance.getMakosoDossierSummaryRows(dossierUuid: uuid);
+    return {...details, 'summary': summaries.firstWhere(
+      (dossier) => dossier['uuid'] == uuid, orElse: () => widget.dossier,
+    )};
+  }
+
+  void _refresh() {
+    setState(() {
+      _details = _load();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Dossier / BL : ${widget.dossier['numero_bl'] ?? widget.dossier['id'] ?? '-'}'),
+        actions: [IconButton(tooltip: 'Actualiser', onPressed: _refresh,
+            icon: const Icon(Icons.refresh))],
+      ),
+      body: FutureBuilder<Map<String, Object?>?>(
+        future: _details,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: TextButton.icon(
+              onPressed: _refresh, icon: const Icon(Icons.refresh),
+              label: const Text('Chargement impossible. Réessayer'),
+            ));
+          }
+          final details = snapshot.data;
+          if (details == null) return const Center(child: Text('Dossier introuvable.'));
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Center(child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1100),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Situation financière', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 12),
+                  _MakosoDossierAmounts(dossier: details['summary'] as Map<String, Object?>),
+                  const Divider(height: 28),
+                  _DossierSearchResult(result: details, onViewScan: widget.onViewScan),
+                ],
+              ),
+            )),
+          );
+        },
+      ),
+    );
+  }
+}
 
 class _MakosoDashHeader extends StatelessWidget {
   final bool syncInProgress;
@@ -952,6 +1166,7 @@ class _PendingDepenseCard extends StatelessWidget {
     final date = fmtDate(d['date'] as String?);
     final montant = fmtMontant(d);
     final dossierUuid = d['dossier_uuid'] as String?;
+    final numeroBl = d['dossier_numero_bl']?.toString().trim() ?? '';
 
     return Container(
       decoration: BoxDecoration(
@@ -985,22 +1200,19 @@ class _PendingDepenseCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
             children: [
               Text(
                 'Date : $date',
                 style: TextStyle(
                     fontSize: 12, color: cs.onSurfaceVariant),
               ),
-              if (dossierUuid != null && dossierUuid.isNotEmpty) ...[
-                const SizedBox(width: 12),
-                const Icon(Icons.folder_outlined,
-                    size: 13, color: Colors.grey),
-                const SizedBox(width: 3),
-                Text('Dossier lié',
+              if (dossierUuid != null && dossierUuid.isNotEmpty)
+                Text('BL : ${numeroBl.isEmpty ? 'Non renseigné' : numeroBl}',
                     style: TextStyle(
                         fontSize: 12, color: cs.onSurfaceVariant)),
-              ],
             ],
           ),
           if (obs.isNotEmpty) ...[

@@ -1783,10 +1783,12 @@ class AppDatabase {
         e.*,
         m.nom   AS monnaie_nom,
         m.sigle AS monnaie_sigle,
+        dos.numero_bl AS dossier_numero_bl,
         COALESCE(u.nom_complet, u.nom_utilisateur) AS validateur_nom
       FROM depenses_makoso e
       LEFT JOIN monnaies m ON m.uuid = e.monnaie_uuid AND m.id > 0
       LEFT JOIN utilisateurs u ON u.uuid = e.validateur_uuid AND u.id > 0
+      LEFT JOIN dossiers dos ON dos.uuid = e.dossier_uuid AND dos.id > 0
       WHERE e.id > 0 AND (e.valide = 0 OR e.valide IS NULL)
       ORDER BY COALESCE(e.date, '') DESC, ABS(e.id) DESC
     ''');
@@ -1809,29 +1811,30 @@ class AppDatabase {
   }
 
   Future<Map<String, Object?>?> searchMakosoDossierDetails(
-    String numeroBl,
-  ) async {
+    String numeroBl, {
+    String? dossierUuid,
+  }) async {
     final db = await initialize();
     final query = numeroBl.trim();
-    if (query.isEmpty) return null;
+    if (query.isEmpty && dossierUuid == null) return null;
 
     final dossiers = await db.rawQuery(
       '''
       SELECT dos.*, c.nom AS client_nom
       FROM dossiers dos
       LEFT JOIN clients c ON c.uuid = dos.client_uuid AND c.id > 0
-      WHERE dos.id > 0 AND LOWER(COALESCE(dos.numero_bl, '')) LIKE LOWER(?)
+      WHERE dos.id > 0 AND ${dossierUuid == null ? "LOWER(COALESCE(dos.numero_bl, '')) LIKE LOWER(?)" : 'dos.uuid = ?'}
       ORDER BY
         CASE WHEN LOWER(dos.numero_bl) = LOWER(?) THEN 0 ELSE 1 END,
         COALESCE(dos.date_creation, '') DESC
       LIMIT 1
       ''',
-      ['%$query%', query],
+      [dossierUuid ?? '%$query%', query],
     );
     if (dossiers.isEmpty) return null;
 
     final dossier = Map<String, Object?>.from(dossiers.first);
-    final dossierUuid = dossier['uuid'] as String;
+    final resolvedDossierUuid = dossier['uuid'] as String;
     final results = await Future.wait([
       db.rawQuery(
         '''
@@ -1841,7 +1844,7 @@ class AppDatabase {
         WHERE da.id > 0 AND da.source_uuid = ?
         ORDER BY COALESCE(da.date_paiement, '') DESC, ABS(da.id) DESC
         ''',
-        [dossierUuid],
+        [resolvedDossierUuid],
       ),
       db.rawQuery(
         '''
@@ -1853,7 +1856,7 @@ class AppDatabase {
         WHERE dep.id > 0 AND dep.dossier_uuid = ?
         ORDER BY COALESCE(dep.date, '') DESC, ABS(dep.id) DESC
         ''',
-        [dossierUuid],
+        [resolvedDossierUuid],
       ),
       db.rawQuery(
         '''
@@ -1862,7 +1865,7 @@ class AppDatabase {
         WHERE id > 0 AND dossier_uuid = ?
         ORDER BY COALESCE(numero_conteneur, '') ASC
         ''',
-        [dossierUuid],
+        [resolvedDossierUuid],
       ),
       db.rawQuery(
         '''
@@ -1871,7 +1874,7 @@ class AppDatabase {
         WHERE id > 0 AND dossier_uuid = ?
         ORDER BY COALESCE(page, 0) ASC, ABS(id) ASC
         ''',
-        [dossierUuid],
+        [resolvedDossierUuid],
       ),
     ]);
 
@@ -1892,6 +1895,53 @@ class AppDatabase {
       where: 'uuid = ?',
       whereArgs: [uuid],
     );
+  }
+
+  Future<List<Map<String, Object?>>> getMakosoDossierSummaryRows({
+    String? dossierUuid,
+  }) async {
+    final db = await initialize();
+    final dossiers = await db.rawQuery('''
+      SELECT dos.*, cl.nom AS client_nom,
+        (SELECT COUNT(*) FROM conteneurs c
+         WHERE c.dossier_uuid = dos.uuid AND c.id > 0) AS nb_conteneurs,
+        (SELECT GROUP_CONCAT(c.numero_conteneur, ' ') FROM conteneurs c
+         WHERE c.dossier_uuid = dos.uuid AND c.id > 0) AS numeros_conteneurs
+      FROM dossiers dos
+      LEFT JOIN clients cl ON cl.uuid = dos.client_uuid AND cl.id > 0
+      WHERE dos.id > 0 ${dossierUuid == null ? '' : 'AND dos.uuid = ?'}
+      ORDER BY COALESCE(dos.date_creation, '') DESC, ABS(dos.id) DESC
+    ''', [if (dossierUuid != null) dossierUuid]);
+    final balances = await db.rawQuery('''
+      SELECT movements.dossier_uuid, movements.monnaie_uuid,
+        m.nom AS monnaie_nom, m.sigle AS monnaie_sigle,
+        SUM(movements.depot) AS total_depot,
+        SUM(movements.depense) AS total_depense
+      FROM (
+        SELECT source_uuid AS dossier_uuid, monnaie_uuid,
+          COALESCE(montant, 0) AS depot, 0 AS depense
+        FROM depot_argent_makoso WHERE id > 0
+        UNION ALL
+        SELECT dossier_uuid, monnaie_uuid, 0 AS depot,
+          COALESCE(montant, 0) AS depense
+        FROM depenses_makoso WHERE id > 0 AND valide = 1
+      ) movements
+      LEFT JOIN monnaies m ON m.uuid = movements.monnaie_uuid AND m.id > 0
+      ${dossierUuid == null ? '' : 'WHERE movements.dossier_uuid = ?'}
+      GROUP BY movements.dossier_uuid, movements.monnaie_uuid
+      ORDER BY m.nom ASC
+    ''', [if (dossierUuid != null) dossierUuid]);
+    final byDossier = <String, List<Map<String, Object?>>>{};
+    for (final balance in balances) {
+      final uuid = balance['dossier_uuid']?.toString();
+      if (uuid != null) {
+        byDossier.putIfAbsent(uuid, () => []).add(balance);
+      }
+    }
+    return dossiers.map((dossier) => <String, Object?>{
+      ...dossier,
+      'financial_rows': byDossier[dossier['uuid']] ?? <Map<String, Object?>>[],
+    }).toList();
   }
 
   /// Dossiers en souffrance according to deposit coverage rules.
@@ -2099,6 +2149,96 @@ class AppDatabase {
       ORDER BY cam.marque ASC, cam.plaque ASC
     ''');
     return rows.toList();
+  }
+
+  Future<List<Map<String, Object?>>> getMarinaVoyageSummaryRows({
+    String? voyageUuid,
+  }) async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        v.*,
+        v.uuid            AS voyage_uuid,
+        v.numero_voyage,
+        v.date_voyage,
+        v.lieu_depart,
+        v.lieu_destination,
+        v.montant_convenu,
+        v.statut,
+        m.sigle           AS monnaie_sigle,
+        m.nom             AS monnaie_nom,
+        cam.marque        AS camion_marque,
+        cam.plaque        AS camion_plaque,
+        cam.modele        AS camion_modele,
+        cam.capacite      AS camion_capacite,
+        ch.nom            AS chauffeur_nom,
+        ch.telephone      AS chauffeur_telephone,
+        ch.adresse        AS chauffeur_adresse,
+        cv.nom            AS convoyeur_nom,
+        cv.telephone      AS convoyeur_telephone,
+        cv.adresse        AS convoyeur_adresse,
+        cl.nom            AS client_nom,
+        cl.telephone      AS client_telephone,
+        cl.email          AS client_email,
+        cl.adresse        AS client_adresse,
+        COALESCE((
+          SELECT SUM(da.montant)
+          FROM depot_argent_marina_trans da
+          WHERE da.source_uuid = v.uuid AND da.id > 0
+            AND da.monnaie_uuid IS v.monnaie_uuid
+        ), 0) AS total_depot,
+        COALESCE((
+          SELECT SUM(dep.montant)
+          FROM depenses_marina_trans dep
+          WHERE dep.origine_uuid = v.uuid AND dep.id > 0 AND dep.valide = 1
+            AND dep.monnaie_uuid IS v.monnaie_uuid
+        ), 0) AS total_depense
+      FROM voyages v
+      LEFT JOIN monnaies m   ON m.uuid   = v.monnaie_uuid  AND m.id > 0
+      LEFT JOIN camions  cam ON cam.uuid = v.camion_uuid   AND cam.id > 0
+      LEFT JOIN chauffeurs_convoyeurs ch ON ch.uuid = v.chauffeur_uuid AND ch.id > 0
+      LEFT JOIN chauffeurs_convoyeurs cv ON cv.uuid = v.convoyeur_uuid AND cv.id > 0
+      LEFT JOIN clients cl ON cl.uuid = v.client_uuid AND cl.id > 0
+      WHERE v.id > 0 ${voyageUuid == null ? '' : 'AND v.uuid = ?'}
+      ORDER BY COALESCE(v.date_voyage, '') DESC, ABS(v.id) DESC
+    ''', [if (voyageUuid != null) voyageUuid]);
+    return rows.toList();
+  }
+
+  Future<Map<String, Object?>> getMarinaVoyageDetails(String voyageUuid) async {
+    final db = await initialize();
+    final voyages = await getMarinaVoyageSummaryRows(voyageUuid: voyageUuid);
+    if (voyages.isEmpty) {
+      throw StateError('Voyage introuvable.');
+    }
+    final depots = await db.rawQuery('''
+      SELECT da.*, m.sigle AS monnaie_sigle, m.nom AS monnaie_nom
+      FROM depot_argent_marina_trans da
+      LEFT JOIN monnaies m ON m.uuid = da.monnaie_uuid AND m.id > 0
+      WHERE da.id > 0 AND da.source_uuid = ?
+      ORDER BY COALESCE(da.date_paiement, '') DESC, ABS(da.id) DESC
+    ''', [voyageUuid]);
+    final depenses = await db.rawQuery('''
+      SELECT dep.*, m.sigle AS monnaie_sigle, m.nom AS monnaie_nom,
+        COALESCE(u.nom_complet, u.nom_utilisateur) AS validateur_nom
+      FROM depenses_marina_trans dep
+      LEFT JOIN monnaies m ON m.uuid = dep.monnaie_uuid AND m.id > 0
+      LEFT JOIN utilisateurs u ON u.uuid = dep.validateur_uuid AND u.id > 0
+      WHERE dep.id > 0 AND dep.origine_uuid = ?
+      ORDER BY COALESCE(dep.date, '') DESC, ABS(dep.id) DESC
+    ''', [voyageUuid]);
+    final documents = await smartQuery(
+      'scan_voyage',
+      where: 'voyage_uuid = ?',
+      whereArgs: [voyageUuid],
+      orderBy: 'page ASC',
+    );
+    return {
+      'voyage': voyages.first,
+      'depots': depots,
+      'depenses': depenses,
+      'documents': documents,
+    };
   }
 
   Future<List<Map<String, Object?>>> getMarinaRetourChargeStats() async {
