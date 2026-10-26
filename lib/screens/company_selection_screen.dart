@@ -17,6 +17,7 @@ class CompanySelectionScreen extends StatefulWidget {
 
 class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
   static const _validAccessCodes = {'A2525', 'B2525'};
+  String? _accessCode;
 
   @override
   void initState() {
@@ -29,11 +30,12 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
   }
 
   Future<void> _showAccessCodeDialog() async {
-    await showDialog<void>(
+    final code = await showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const _AccessCodeDialog(validCodes: _validAccessCodes),
     );
+    _accessCode = code;
   }
 
   @override
@@ -147,7 +149,7 @@ class _CompanySelectionScreenState extends State<CompanySelectionScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => company == AppCompany.marinaTrans
-            ? const MarinaDashboardScreen()
+            ? MarinaDashboardScreen(accessCode: _accessCode)
             : const MakosoDashboardScreen(),
       ),
     );
@@ -176,7 +178,7 @@ class _AccessCodeDialogState extends State<_AccessCodeDialog> {
   void _validateCode() {
     final code = _controller.text.trim().toUpperCase();
     if (widget.validCodes.contains(code)) {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(code);
       return;
     }
     setState(() => _errorText = 'Code d’accès incorrect.');

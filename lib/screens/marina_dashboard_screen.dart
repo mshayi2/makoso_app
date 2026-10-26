@@ -11,20 +11,29 @@ import 'package:path_provider/path_provider.dart';
 import '../database/app_database.dart';
 import '../services/sync_service.dart';
 import 'company_selection_screen.dart';
+import '../widgets/pagination_bar.dart';
 
 class MarinaDashboardScreen extends StatefulWidget {
-  const MarinaDashboardScreen({super.key});
+  final String? accessCode;
+
+  const MarinaDashboardScreen({super.key, this.accessCode});
 
   @override
   State<MarinaDashboardScreen> createState() => _MarinaDashboardScreenState();
 }
 
 class _MarinaDashboardScreenState extends State<MarinaDashboardScreen> {
+  static const _limitedAccessCode = 'B2525';
+  static const _limitedValidationUsd = 10000.0;
+
   bool _loading = true;
   final TextEditingController _voyageSearchCtrl = TextEditingController();
 
   List<Map<String, Object?>> _financialRows = [];
   List<Map<String, Object?>> _voyages = [];
+  int _pendingDepenses = 0;
+  int _voyagePage = 0;
+  final _voyageListKey = GlobalKey();
 
   bool _syncInProgress = false;
   StreamSubscription<SyncNotification>? _syncSub;
@@ -66,13 +75,181 @@ class _MarinaDashboardScreenState extends State<MarinaDashboardScreen> {
     final results = await Future.wait([
       db.getMarinaDashboardFinancialRows(),
       db.getMarinaVoyageSummaryRows(),
+      db.getMarinaPendingDepenseCount(),
     ]);
     if (!mounted) return;
     setState(() {
       _financialRows = results[0] as List<Map<String, Object?>>;
       _voyages = results[1] as List<Map<String, Object?>>;
+      _pendingDepenses = results[2] as int;
       _loading = false;
     });
+  }
+
+  bool _isUsd(Map<String, Object?> d) {
+    final sigle = (d['monnaie_sigle']?.toString() ?? '').trim().toUpperCase();
+    final nom = (d['monnaie_nom']?.toString() ?? '').trim().toUpperCase();
+    return sigle == 'USD' ||
+        nom == 'USD' ||
+        (nom.contains('US') && nom.contains('DOLLAR'));
+  }
+
+  Future<double?> _promptConversionRate(String currencyLabel) async {
+    final controller = TextEditingController();
+    String? errorText;
+    try {
+      return await showDialog<double>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            void submit() {
+              final rate =
+                  double.tryParse(controller.text.trim().replaceAll(',', '.'));
+              if (rate == null || rate <= 0) {
+                setDialogState(() =>
+                    errorText = 'Entrez un taux valide supérieur à 0.');
+                return;
+              }
+              Navigator.of(ctx).pop(rate);
+            }
+
+            return AlertDialog(
+              title: const Text('Taux de conversion'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('1 USD = combien de $currencyLabel ?'),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Taux de conversion',
+                      border: const OutlineInputBorder(),
+                      errorText: errorText,
+                    ),
+                    onSubmitted: (_) => submit(),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Annuler'),
+                ),
+                ElevatedButton(
+                    onPressed: submit, child: const Text('Confirmer')),
+              ],
+            );
+          },
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  /// Returns true when the current access code is allowed to validate or reject [d].
+  Future<bool> _canProcess(Map<String, Object?> d, String action) async {
+    if (widget.accessCode != _limitedAccessCode) return true;
+    final montant = (d['montant'] as num?)?.toDouble() ?? 0;
+    var montantUsd = montant;
+    if (!_isUsd(d)) {
+      final sigle = (d['monnaie_sigle']?.toString() ?? '').trim();
+      final label = sigle.isNotEmpty ? sigle : (d['monnaie_nom']?.toString() ?? '');
+      final rate = await _promptConversionRate(label);
+      if (rate == null) return false;
+      montantUsd = montant / rate;
+    }
+    if (montantUsd <= _limitedValidationUsd) return true;
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(
+              'Ce code d’accès ne permet pas de $action une dépense supérieure à 10 000 USD.'),
+        ));
+    }
+    return false;
+  }
+
+  Future<void> _validerDepense(Map<String, Object?> d) async {
+    final uuid = d['uuid'] as String? ?? '';
+    final libelle = d['libelle'] as String? ?? uuid;
+    final montant = (d['montant'] as num?)?.toDouble();
+    final sigle = (d['monnaie_sigle'] as String?)?.trim() ?? '';
+    final montantStr = montant != null
+        ? '${NumberFormat('#,##0.00', 'fr_FR').format(montant)} $sigle'.trim()
+        : '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Valider la dépense'),
+        content: Text('Valider "$libelle" ($montantStr) ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF16A34A),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Valider'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    if (!await _canProcess(d, 'valider') || !mounted) return;
+    final today = DateTime.now();
+    final dateVal = '${today.year.toString().padLeft(4, '0')}-'
+        '${today.month.toString().padLeft(2, '0')}-'
+        '${today.day.toString().padLeft(2, '0')}';
+    await AppDatabase.instance.validateMarinaDepense(uuid, dateVal);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Dépense validée.')));
+    _load();
+  }
+
+  Future<void> _rejeterDepense(Map<String, Object?> d) async {
+    final uuid = d['uuid'] as String? ?? '';
+    final libelle = d['libelle'] as String? ?? uuid;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rejeter la dépense'),
+        content: Text('Supprimer définitivement "$libelle" ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Rejeter'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    if (!await _canProcess(d, 'rejeter') || !mounted) return;
+    await AppDatabase.instance.deleteMarinaDepense(uuid);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Dépense rejetée.')));
+    _load();
   }
 
   @override
@@ -129,18 +306,40 @@ class _MarinaDashboardScreenState extends State<MarinaDashboardScreen> {
 
                         const SizedBox(height: 28),
 
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.hourglass_top_rounded,
+                              color: Color(0xFFD97706)),
+                          title: const Text('Dépenses en attente de validation'),
+                          subtitle: Text('$_pendingDepenses dépense(s)'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () async {
+                            await Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => _MarinaPendingExpensesScreen(
+                                onValider: _validerDepense,
+                                onRejeter: _rejeterDepense,
+                              ),
+                            ));
+                            if (mounted) _load();
+                          },
+                        ),
+                        const SizedBox(height: 28),
+
                         // ── Voyage list ──────────────────────────────────
-                        _SectionHeader(
-                          icon: Icons.local_shipping_rounded,
-                          label: 'Liste des voyages',
-                          iconColor: const Color(0xFF3B82F6),
-                          badgeColor: const Color(0xFFEFF6FF),
-                          badge: '${_filteredVoyages.length}',
+                        KeyedSubtree(
+                          key: _voyageListKey,
+                          child: _SectionHeader(
+                            icon: Icons.local_shipping_rounded,
+                            label: 'Liste des voyages',
+                            iconColor: const Color(0xFF3B82F6),
+                            badgeColor: const Color(0xFFEFF6FF),
+                            badge: '${_filteredVoyages.length}',
+                          ),
                         ),
                         const SizedBox(height: 12),
                         TextField(
                           controller: _voyageSearchCtrl,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => setState(() => _voyagePage = 0),
                           decoration: InputDecoration(
                             hintText: 'Rechercher par N° voyage ou N° camion...',
                             prefixIcon: const Icon(Icons.search),
@@ -148,7 +347,10 @@ class _MarinaDashboardScreenState extends State<MarinaDashboardScreen> {
                                 ? IconButton(
                                     icon: const Icon(Icons.clear),
                                     onPressed: () {
-                                      setState(() => _voyageSearchCtrl.clear());
+                                      setState(() {
+                                        _voyageSearchCtrl.clear();
+                                        _voyagePage = 0;
+                                      });
                                     },
                                   )
                                 : null,
@@ -162,9 +364,9 @@ class _MarinaDashboardScreenState extends State<MarinaDashboardScreen> {
                             icon: Icons.local_shipping_outlined,
                             message: 'Aucun voyage trouvé.',
                           )
-                        else
+                        else ...[
                           _VoyageList(
-                            voyages: _filteredVoyages,
+                            voyages: pageSlice(_filteredVoyages, _voyagePage),
                             onTapVoyage: (voyage) {
                               Navigator.of(context).push(
                                 MaterialPageRoute(
@@ -174,12 +376,248 @@ class _MarinaDashboardScreenState extends State<MarinaDashboardScreen> {
                               );
                             },
                           ),
+                          PaginationBar(
+                            page: _voyagePage,
+                            totalItems: _filteredVoyages.length,
+                            onPageChanged: (p) {
+                              setState(() => _voyagePage = p);
+                              scrollToListStart(_voyageListKey);
+                            },
+                          ),
+                        ],
                       ],
                     ),
                   ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MarinaPendingExpensesScreen extends StatefulWidget {
+  final Future<void> Function(Map<String, Object?>) onValider;
+  final Future<void> Function(Map<String, Object?>) onRejeter;
+
+  const _MarinaPendingExpensesScreen(
+      {required this.onValider, required this.onRejeter});
+
+  @override
+  State<_MarinaPendingExpensesScreen> createState() =>
+      _MarinaPendingExpensesScreenState();
+}
+
+class _MarinaPendingExpensesScreenState
+    extends State<_MarinaPendingExpensesScreen> {
+  static final _dateFmt = DateFormat('dd/MM/yyyy');
+  static final _numFmt = NumberFormat('#,##0.00', 'fr_FR');
+
+  late Future<List<Map<String, Object?>>> _expenses;
+  bool _busy = false;
+  int _page = 0;
+  final _listKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    _expenses = AppDatabase.instance.getMarinaPendingDepenses();
+  }
+
+  void _refresh() {
+    setState(() {
+      _expenses = AppDatabase.instance.getMarinaPendingDepenses();
+    });
+  }
+
+  Future<void> _act(Map<String, Object?> expense,
+      Future<void> Function(Map<String, Object?>) action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await action(expense);
+      if (mounted) _refresh();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Impossible de traiter la dépense : $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _fmtDate(String? raw) {
+    if (raw == null || raw.isEmpty) return '-';
+    try {
+      return _dateFmt.format(DateTime.parse(raw));
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  String _fmtMontant(Map<String, Object?> d) {
+    final montant = (d['montant'] as num?)?.toDouble();
+    if (montant == null) return '-';
+    final sigle = (d['monnaie_sigle'] as String?)?.trim() ?? '';
+    return '${_numFmt.format(montant)} $sigle'.trim();
+  }
+
+  Widget _card(BuildContext context, Map<String, Object?> d) {
+    final cs = Theme.of(context).colorScheme;
+    final obs = (d['observation'] as String?) ?? '';
+    final voyage = d['voyage_numero']?.toString().trim() ?? '';
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFBBF24).withAlpha(100)),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.receipt_long_rounded,
+                  size: 18, color: Color(0xFFD97706)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  (d['libelle'] as String?) ?? '-',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                _fmtMontant(d),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFDC2626),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            children: [
+              Text('Date : ${_fmtDate(d['date'] as String?)}',
+                  style:
+                      TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+              if (voyage.isNotEmpty)
+                Text('Voyage : $voyage',
+                    style:
+                        TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+            ],
+          ),
+          if (obs.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              obs,
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _act(d, widget.onRejeter),
+                icon: const Icon(Icons.close_rounded, size: 16),
+                label: const Text('Rejeter'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFDC2626),
+                  side: const BorderSide(color: Color(0xFFDC2626)),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  textStyle: const TextStyle(fontSize: 13),
+                ),
+              ),
+              const SizedBox(width: 10),
+              ElevatedButton.icon(
+                onPressed: () => _act(d, widget.onValider),
+                icon: const Icon(Icons.check_rounded, size: 16),
+                label: const Text('Valider'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF16A34A),
+                  foregroundColor: Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  textStyle: const TextStyle(fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Dépenses en attente de validation'),
+        actions: [
+          IconButton(
+            tooltip: 'Actualiser',
+            onPressed: _busy ? null : _refresh,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: Column(children: [
+        if (_busy) const LinearProgressIndicator(),
+        Expanded(
+          child: FutureBuilder<List<Map<String, Object?>>>(
+            future: _expenses,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(
+                  child: TextButton.icon(
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Chargement impossible. Réessayer'),
+                  ),
+                );
+              }
+              final expenses = snapshot.data ?? [];
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: AbsorbPointer(
+                  key: _listKey,
+                  absorbing: _busy,
+                  child: expenses.isEmpty
+                      ? const _EmptyState(
+                          icon: Icons.check_circle_outline,
+                          message: 'Aucune dépense en attente.')
+                      : Column(children: [
+                          for (final expense in pageSlice(expenses, _page)) ...[
+                            _card(context, expense),
+                            const SizedBox(height: 8),
+                          ],
+                          PaginationBar(
+                            page: _page,
+                            totalItems: expenses.length,
+                            onPageChanged: (p) {
+                              setState(() => _page = p);
+                              scrollToListStart(_listKey);
+                            },
+                          ),
+                        ]),
+                ),
+              );
+            },
+          ),
+        ),
+      ]),
     );
   }
 }

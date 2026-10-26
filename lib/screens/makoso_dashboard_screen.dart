@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../database/app_database.dart';
 import '../services/sync_service.dart';
+import '../widgets/pagination_bar.dart';
 
 Uint8List? _decodeScanBytes(Object? value) {
   if (value is Uint8List) return value;
@@ -106,6 +107,8 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
   List<Map<String, Object?>> _dossiers = [];
 
   final _dossierSearchCtrl = TextEditingController();
+  int _dossierPage = 0;
+  final _dossierListKey = GlobalKey();
 
   List<Map<String, Object?>> get _filteredDossiers {
     final query = _dossierSearchCtrl.text.trim().toLowerCase();
@@ -399,24 +402,30 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
                           },
                         ),
                         const SizedBox(height: 28),
-                        _SectionHeader(
-                          icon: Icons.folder_open_rounded,
-                          label: 'Liste des dossiers',
-                          iconColor: const Color(0xFF0F766E),
-                          badgeColor: const Color(0xFFF0FDFA),
-                          badge: '${_filteredDossiers.length}',
+                        KeyedSubtree(
+                          key: _dossierListKey,
+                          child: _SectionHeader(
+                            icon: Icons.folder_open_rounded,
+                            label: 'Liste des dossiers',
+                            iconColor: const Color(0xFF0F766E),
+                            badgeColor: const Color(0xFFF0FDFA),
+                            badge: '${_filteredDossiers.length}',
+                          ),
                         ),
                         const SizedBox(height: 12),
                         TextField(
                           controller: _dossierSearchCtrl,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => setState(() => _dossierPage = 0),
                           decoration: InputDecoration(
                             hintText: 'Rechercher par BL ou numéro de conteneur...',
                             prefixIcon: const Icon(Icons.search),
                             suffixIcon: _dossierSearchCtrl.text.isEmpty ? null
                                 : IconButton(
                                     tooltip: 'Effacer la recherche',
-                                    onPressed: () => setState(_dossierSearchCtrl.clear),
+                                    onPressed: () => setState(() {
+                                      _dossierSearchCtrl.clear();
+                                      _dossierPage = 0;
+                                    }),
                                     icon: const Icon(Icons.clear),
                                   ),
                             border: const OutlineInputBorder(),
@@ -429,7 +438,8 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
                             icon: Icons.folder_off_outlined,
                             message: 'Aucun dossier trouvé.',
                           ),
-                        for (final dossier in _filteredDossiers) ...[
+                        for (final dossier
+                            in pageSlice(_filteredDossiers, _dossierPage)) ...[
                           _MakosoDossierCard(
                             key: ValueKey(dossier['uuid']),
                             dossier: dossier,
@@ -441,6 +451,14 @@ class _MakosoDashboardScreenState extends State<MakosoDashboardScreen> {
                           ),
                           const SizedBox(height: 10),
                         ],
+                        PaginationBar(
+                          page: _dossierPage,
+                          totalItems: _filteredDossiers.length,
+                          onPageChanged: (p) {
+                            setState(() => _dossierPage = p);
+                            scrollToListStart(_dossierListKey);
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -571,6 +589,8 @@ class _MakosoPendingExpensesScreen extends StatefulWidget {
 class _MakosoPendingExpensesScreenState extends State<_MakosoPendingExpensesScreen> {
   late Future<List<Map<String, Object?>>> _expenses;
   bool _busy = false;
+  int _page = 0;
+  final _listKey = GlobalKey();
 
   @override
   void initState() {
@@ -630,15 +650,26 @@ class _MakosoPendingExpensesScreenState extends State<_MakosoPendingExpensesScre
             return SingleChildScrollView(
               padding: const EdgeInsets.all(20),
               child: AbsorbPointer(
+                key: _listKey,
                 absorbing: _busy,
                 child: expenses.isEmpty
                     ? const _EmptyState(icon: Icons.check_circle_outline,
                         message: 'Aucune dépense en attente.')
-                    : _PendingDepensesList(
-                        depenses: expenses,
-                        onValider: (expense) => _act(expense, widget.onValider),
-                        onRejeter: (expense) => _act(expense, widget.onRejeter),
-                      ),
+                    : Column(children: [
+                        _PendingDepensesList(
+                          depenses: pageSlice(expenses, _page),
+                          onValider: (expense) => _act(expense, widget.onValider),
+                          onRejeter: (expense) => _act(expense, widget.onRejeter),
+                        ),
+                        PaginationBar(
+                          page: _page,
+                          totalItems: expenses.length,
+                          onPageChanged: (p) {
+                            setState(() => _page = p);
+                            scrollToListStart(_listKey);
+                          },
+                        ),
+                      ]),
               ),
             );
           },

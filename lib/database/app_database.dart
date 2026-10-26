@@ -2096,6 +2096,46 @@ class AppDatabase {
     return rows.toList();
   }
 
+  Future<int> getMarinaPendingDepenseCount() async {
+    final db = await initialize();
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS cnt FROM depenses_marina_trans WHERE id > 0 AND (valide = 0 OR valide IS NULL)',
+    );
+    return (result.first['cnt'] as int?) ?? 0;
+  }
+
+  Future<List<Map<String, Object?>>> getMarinaPendingDepenses() async {
+    final db = await initialize();
+    final rows = await db.rawQuery('''
+      SELECT
+        e.*,
+        m.nom   AS monnaie_nom,
+        m.sigle AS monnaie_sigle,
+        v.numero_voyage AS voyage_numero
+      FROM depenses_marina_trans e
+      LEFT JOIN monnaies m ON m.uuid = e.monnaie_uuid AND m.id > 0
+      LEFT JOIN voyages v ON v.uuid = e.origine_uuid AND v.id > 0
+      WHERE e.id > 0 AND (e.valide = 0 OR e.valide IS NULL)
+      ORDER BY COALESCE(e.date, '') DESC, ABS(e.id) DESC
+    ''');
+    return rows.toList();
+  }
+
+  Future<int> validateMarinaDepense(String uuid, String dateValidation) async {
+    final db = await initialize();
+    return db.rawUpdate(
+      '''UPDATE depenses_marina_trans
+         SET valide = 1, date_validation = ?,
+             sync = CASE WHEN sync > 0 THEN -sync ELSE sync END
+         WHERE uuid = ?''',
+      [dateValidation, uuid],
+    );
+  }
+
+  Future<int> deleteMarinaDepense(String uuid) async {
+    return smartDelete('depenses_marina_trans', where: 'uuid = ?', whereArgs: [uuid]);
+  }
+
   Future<Map<String, int>> getMarinaDashboardVoyageStats() async {
     final db = await initialize();
     final rows = await db.rawQuery('''
