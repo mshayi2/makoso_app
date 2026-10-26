@@ -1779,7 +1779,7 @@ class AppDatabase {
     required String monnaieUuid,
     required double montant,
     required String libelle,
-    required String sourceUuid,
+    String? sourceUuid,
     String? datePaiement,
     String? excludeUuid,
   }) async {
@@ -1791,7 +1791,7 @@ class AppDatabase {
       WHERE id > 0
         AND monnaie_uuid = ?
         AND libelle = ?
-        AND source_uuid = ?
+        AND COALESCE(source_uuid, '') = ?
         AND COALESCE(date_paiement, '') = ?
         AND ABS(COALESCE(montant, 0) - ?) < 0.000001
         ${excludeUuid != null ? 'AND uuid <> ?' : ''}
@@ -1799,7 +1799,7 @@ class AppDatabase {
       [
         monnaieUuid,
         libelle,
-        sourceUuid,
+        sourceUuid ?? '',
         datePaiement ?? '',
         montant,
         if (excludeUuid != null) excludeUuid,
@@ -1982,7 +1982,7 @@ class AppDatabase {
     required String libelle,
     String? observation,
     String? datePaiement,
-    required String sourceUuid,
+    String? sourceUuid,
     String? agent,
   }) async {
     final hasDuplicate = await _depotArgentDuplicateExists(
@@ -2017,7 +2017,7 @@ class AppDatabase {
     required String libelle,
     String? observation,
     String? datePaiement,
-    required String sourceUuid,
+    String? sourceUuid,
     String? agent,
   }) async {
     final hasDuplicate = await _depotArgentDuplicateExists(

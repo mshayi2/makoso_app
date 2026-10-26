@@ -166,6 +166,114 @@ class RapportPdf {
     return doc.save();
   }
 
+  /// Builds the monthly list of expenses with totals per currency.
+  static Future<Uint8List> buildDepensesMensuel({
+    required String companyName,
+    required String periodeLabel,
+    required List<DepenseRecord> depenses,
+    required List<MapEntry<String, double>> totalsByCurrency,
+  }) async {
+    final font = pw.Font.helvetica();
+    final fontBold = pw.Font.helveticaBold();
+    final doc = pw.Document(title: 'Depenses mensuelles $companyName');
+
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4.landscape,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+      header: (ctx) => _docHeader(companyName, periodeLabel, font, fontBold),
+      footer: (ctx) => _docFooter(ctx, font),
+      build: (ctx) => [
+        _sectionTitle('Depenses du mois (${depenses.length})', fontBold),
+        pw.SizedBox(height: 6),
+        if (depenses.isEmpty)
+          _emptyNote('Aucune depense pour ce mois.', font)
+        else ...[
+          _monthlyDepenseTable(depenses, font, fontBold),
+          pw.SizedBox(height: 14),
+          _sectionTitle('Total des depenses du mois', fontBold),
+          pw.SizedBox(height: 6),
+          pw.TableHelper.fromTextArray(
+            headers: const ['Monnaie', 'Total'],
+            data: totalsByCurrency.map((e) => [e.key, _n(e.value)]).toList(),
+            headerStyle:
+                pw.TextStyle(font: fontBold, fontSize: 8, color: PdfColors.white),
+            cellStyle: pw.TextStyle(font: fontBold, fontSize: 8, color: _cDark),
+            headerDecoration: pw.BoxDecoration(color: _cHeaderBg),
+            border: pw.TableBorder.all(color: _cBorder, width: 0.4),
+            cellAlignment: pw.Alignment.centerLeft,
+            cellAlignments: {1: pw.Alignment.centerRight},
+            columnWidths: {
+              0: const pw.FixedColumnWidth(120),
+              1: const pw.FixedColumnWidth(120),
+            },
+          ),
+        ],
+      ],
+    ));
+
+    return doc.save();
+  }
+
+  static pw.Widget _monthlyDepenseTable(
+    List<DepenseRecord> rows,
+    pw.Font font,
+    pw.Font fontBold,
+  ) {
+    return pw.TableHelper.fromTextArray(
+      headers: const [
+        'Date',
+        'Libelle',
+        'Reference',
+        'Montant',
+        'Monnaie',
+        'Statut',
+        'Validateur',
+        'Observation',
+      ],
+      data: rows
+          .map((row) => [
+                _formatDate(row.date),
+                row.libelle ?? '-',
+                depenseReference(row),
+                _n(row.montant),
+                row.monnaieSigle ?? row.monnaieNom ?? '-',
+                row.validationStatus,
+                row.validateurNom ?? '-',
+                row.observation ?? '-',
+              ])
+          .toList(),
+      headerStyle: pw.TextStyle(font: fontBold, fontSize: 7, color: PdfColors.white),
+      cellStyle: pw.TextStyle(font: font, fontSize: 7, color: _cDark),
+      headerDecoration: pw.BoxDecoration(color: _cHeaderBg),
+      oddRowDecoration: pw.BoxDecoration(color: _cRowAlt),
+      border: pw.TableBorder.all(color: _cBorder, width: 0.4),
+      cellAlignment: pw.Alignment.centerLeft,
+      cellAlignments: {3: pw.Alignment.centerRight},
+      columnWidths: {
+        0: const pw.FixedColumnWidth(48),
+        1: const pw.FlexColumnWidth(1.4),
+        2: const pw.FlexColumnWidth(1.1),
+        3: const pw.FixedColumnWidth(62),
+        4: const pw.FixedColumnWidth(48),
+        5: const pw.FixedColumnWidth(55),
+        6: const pw.FlexColumnWidth(),
+        7: const pw.FlexColumnWidth(1.4),
+      },
+    );
+  }
+
+  /// Type, voyage / BL and container of an expense, joined for display.
+  static String depenseReference(DepenseRecord row) {
+    final parts = [
+      row.typeDepense,
+      row.numeroVoyage,
+      row.numeroBl,
+      row.numeroConteneur,
+    ].where((v) => v != null && v.trim().isNotEmpty).cast<String>();
+    return parts.isEmpty ? '-' : parts.join(' - ');
+  }
+
   static pw.Widget _cashDepotTable(
     List<DepotArgentRecord> rows,
     pw.Font font,

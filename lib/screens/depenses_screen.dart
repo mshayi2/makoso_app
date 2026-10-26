@@ -75,6 +75,7 @@ class _DepensesScreenState extends State<DepensesScreen> {
       : 'depenses_makoso';
 
   static const double _autoValidationUsdThreshold = 1000;
+  static const double _collaborateurMaxValidationUsd = 10000;
 
   @override
   void initState() {
@@ -496,20 +497,20 @@ class _DepensesScreenState extends State<DepensesScreen> {
     setState(() => _isSaving = true);
     final isEditing = _editingDepense != null;
 
-    // Collaborateur restriction: can only manually validate 1000 or 10000 USD
+    // Collaborateur restriction: can only manually validate up to 10000 USD
     if (widget.user.role == 'collaborateur' &&
         validationDecision.valide > 0 &&
         _selectedValidationStatus == 'Validée') {
       final monnaie = _selectedMonnaie();
       if (monnaie == null ||
           !_isUsdCurrency(monnaie) ||
-          (montant != 1000 && montant != 10000)) {
+          montant > _collaborateurMaxValidationUsd) {
         setState(() => _isSaving = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'En tant que collaborateur, vous ne pouvez valider que les dépenses de 1000 USD ou 10 000 USD.',
+                'En tant que coordonateur, vous ne pouvez valider que les dépenses en USD allant jusqu\'à 10 000 USD.',
               ),
               backgroundColor: Colors.red,
             ),

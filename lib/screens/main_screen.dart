@@ -15,6 +15,7 @@ import 'depenses_screen.dart';
 import 'dossiers_screen.dart';
 import 'login_screen.dart';
 import 'rapport_caisse_screen.dart';
+import 'rapport_depenses_mensuel_screen.dart';
 import 'rapport_mensuel_makoso_screen.dart';
 import 'rapport_mensuel_marina_trans_screen.dart';
 import 'tableau_de_bord_screen.dart';
@@ -54,6 +55,7 @@ enum _NavOption {
   cloture,
   rapportCaisse,
   rapportMensuel,
+  rapportDepensesMensuel,
 }
 
 class _NavItem {
@@ -77,6 +79,7 @@ const _navItems = [
   _NavItem(_NavOption.cloture, Icons.lock_clock_outlined, 'Clôture'),
   _NavItem(_NavOption.rapportCaisse, Icons.receipt_long_outlined, 'Rapport'),
   _NavItem(_NavOption.rapportMensuel, Icons.bar_chart_outlined, 'Rapport mensuel'),
+  _NavItem(_NavOption.rapportDepensesMensuel, Icons.summarize_outlined, 'Dépenses mensuelles'),
 ];
 
 class MainScreen extends StatefulWidget {
@@ -266,6 +269,8 @@ class _MainScreenState extends State<MainScreen> {
       _NavOption.rapportMensuel => widget.company == AppCompany.makoso
           ? const RapportMensuelMakosoScreen()
           : const RapportMensuelMarinaTransScreen(),
+      _NavOption.rapportDepensesMensuel =>
+        RapportDepensesMensuelScreen(company: widget.company),
     };
 
     return KeyedSubtree(
@@ -588,6 +593,7 @@ class _MainScreenState extends State<MainScreen> {
                           _NavOption.cloture,
                           _NavOption.rapportCaisse,
                           _NavOption.rapportMensuel,
+                          _NavOption.rapportDepensesMensuel,
                         };
                         const marianOptions = {
                           _NavOption.tableauDeBord,
@@ -601,6 +607,7 @@ class _MainScreenState extends State<MainScreen> {
                           _NavOption.cloture,
                           _NavOption.rapportCaisse,
                           _NavOption.rapportMensuel,
+                          _NavOption.rapportDepensesMensuel,
                         };
                         if (isMakoso && !makosOptions.contains(item.option)) return false;
                         if (!isMakoso && !marianOptions.contains(item.option)) return false;
@@ -610,7 +617,8 @@ class _MainScreenState extends State<MainScreen> {
                         if (role == 'caissier') {
                           return item.option == _NavOption.depotArgent ||
                           item.option == _NavOption.depenses ||
-                          item.option == _NavOption.rapportCaisse;
+                          item.option == _NavOption.rapportCaisse ||
+                          item.option == _NavOption.rapportDepensesMensuel;
                         }
                         if (role == 'gestionnaire matadi') {
                           // marian only: voyages and depenses
@@ -623,7 +631,8 @@ class _MainScreenState extends State<MainScreen> {
                               item.option == _NavOption.clients ||
                               item.option == _NavOption.depotArgent ||
                               item.option == _NavOption.voyages ||
-                              item.option == _NavOption.depenses;
+                              item.option == _NavOption.depenses ||
+                              item.option == _NavOption.rapportDepensesMensuel;
                         }
                         if (role == 'opérateur logistique') {
                           if (isMakoso) {
@@ -647,7 +656,8 @@ class _MainScreenState extends State<MainScreen> {
                         }
                         // Clôture et rapport : admin, boss, collaborateur seulement
                         if (item.option == _NavOption.cloture ||
-                            item.option == _NavOption.rapportMensuel) {
+                            item.option == _NavOption.rapportMensuel ||
+                            item.option == _NavOption.rapportDepensesMensuel) {
                           return role == 'admin' ||
                               role == 'boss' ||
                               role == 'collaborateur';

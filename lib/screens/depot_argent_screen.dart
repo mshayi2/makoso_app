@@ -10,6 +10,8 @@ import 'main_screen.dart' show AppCompany;
 
 const int _kDepotPageSize = 250;
 
+const String _kAutreDepot = 'Autre dépôt';
+
 const List<String> _kDepotLibellesMakoso = [
   'Paiement 30% draft',
   'Paiement 30% Pointe Noir',
@@ -23,6 +25,7 @@ const List<String> _kDepotLibellesMakoso = [
 const List<String> _kDepotLibellesMarian = [
   'Voyage camion',
   'Retour Camion avec Charge',
+  _kAutreDepot,
 ];
 
 class DepotArgentScreen extends StatefulWidget {
@@ -72,6 +75,8 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
   String get _depotTable => widget.company == AppCompany.marian
       ? 'depot_argent_marina_trans'
       : 'depot_argent_makoso';
+
+  bool get _requiresSource => _selectedLibelle != _kAutreDepot;
 
   String get _sourceFieldLabel {
     if (_selectedLibelle == 'Voyage camion' ||
@@ -160,7 +165,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
 
   Future<void> _loadSourcesForLibelle({String? includeSourceUuid}) async {
     final libelle = _selectedLibelle;
-    if (libelle == null || libelle.isEmpty) {
+    if (libelle == null || libelle.isEmpty || libelle == _kAutreDepot) {
       if (!mounted) return;
       setState(() {
         _sources = [];
@@ -229,7 +234,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
           libelle: _selectedLibelle!,
           observation: _emptyToNull(_observationCtrl.text),
           datePaiement: _emptyToNull(_datePaiementCtrl.text),
-          sourceUuid: _selectedSourceUuid!,
+          sourceUuid: _requiresSource ? _selectedSourceUuid! : null,
           agent: _emptyToNull(_agentCtrl.text),
         );
       } else {
@@ -240,7 +245,7 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
           libelle: _selectedLibelle!,
           observation: _emptyToNull(_observationCtrl.text),
           datePaiement: _emptyToNull(_datePaiementCtrl.text),
-          sourceUuid: _selectedSourceUuid!,
+          sourceUuid: _requiresSource ? _selectedSourceUuid! : null,
           agent: _emptyToNull(_agentCtrl.text),
         );
       }
@@ -385,33 +390,34 @@ class _DepotArgentScreenState extends State<DepotArgentScreen> {
                 },
               ),
             ),
-            SizedBox(
-              width: fieldWidth,
-              child: DropdownButtonFormField<String>(
-                value: _selectedSourceUuid,
-                decoration: InputDecoration(
-                  labelText: _sourceFieldLabel,
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.link_outlined),
-                ),
-                items: _sources
-                    .map(
-                      (source) => DropdownMenuItem(
-                        value: source.uuid,
-                        child: Text(
-                          source.statut?.isNotEmpty == true
-                              ? '${source.label} - ${source.statut}'
-                              : source.label,
-                          overflow: TextOverflow.ellipsis,
+            if (_requiresSource)
+              SizedBox(
+                width: fieldWidth,
+                child: DropdownButtonFormField<String>(
+                  value: _selectedSourceUuid,
+                  decoration: InputDecoration(
+                    labelText: _sourceFieldLabel,
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.link_outlined),
+                  ),
+                  items: _sources
+                      .map(
+                        (source) => DropdownMenuItem(
+                          value: source.uuid,
+                          child: Text(
+                            source.statut?.isNotEmpty == true
+                                ? '${source.label} - ${source.statut}'
+                                : source.label,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                      ),
-                    )
-                    .toList(),
-                validator: (value) => value == null ? 'Champ requis' : null,
-                onChanged: (value) =>
-                    setState(() => _selectedSourceUuid = value),
+                      )
+                      .toList(),
+                  validator: (value) => value == null ? 'Champ requis' : null,
+                  onChanged: (value) =>
+                      setState(() => _selectedSourceUuid = value),
+                ),
               ),
-            ),
             SizedBox(
               width: fieldWidth,
               child: DropdownButtonFormField<String>(
