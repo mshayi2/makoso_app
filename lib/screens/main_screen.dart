@@ -16,8 +16,7 @@ import 'dossiers_screen.dart';
 import 'login_screen.dart';
 import 'rapport_caisse_screen.dart';
 import 'rapport_depenses_mensuel_screen.dart';
-import 'rapport_mensuel_makoso_screen.dart';
-import 'rapport_mensuel_marina_trans_screen.dart';
+import 'rapport_mensuel_screen.dart';
 import 'tableau_de_bord_screen.dart';
 import 'utilisateurs_screen.dart';
 import 'voyages_screen.dart';
@@ -266,9 +265,7 @@ class _MainScreenState extends State<MainScreen> {
       _NavOption.conteneursMakoso => ConteneursMakosoScreen(user: widget.user),
       _NavOption.cloture => ClotureScreen(company: widget.company),
         _NavOption.rapportCaisse => RapportCaisseScreen(company: widget.company),
-      _NavOption.rapportMensuel => widget.company == AppCompany.makoso
-          ? const RapportMensuelMakosoScreen()
-          : const RapportMensuelMarinaTransScreen(),
+      _NavOption.rapportMensuel => RapportMensuelScreen(company: widget.company),
       _NavOption.rapportDepensesMensuel =>
         RapportDepensesMensuelScreen(company: widget.company),
     };

@@ -7,6 +7,29 @@ import 'package:pdf/widgets.dart' as pw;
 import '../models/depense.dart';
 import '../models/depot_argent.dart';
 
+/// Financial position of one currency for the monthly report.
+/// Previous-month figures are cumulative up to the end of the previous month;
+/// month figures only cover the chosen month. Expenses are validated ones.
+class MonthlyCurrencySummary {
+  final String currency;
+  final double previousDepot;
+  final double previousDepense;
+  final double monthDepot;
+  final double monthDepense;
+
+  const MonthlyCurrencySummary({
+    required this.currency,
+    required this.previousDepot,
+    required this.previousDepense,
+    required this.monthDepot,
+    required this.monthDepense,
+  });
+
+  double get previousSolde => previousDepot - previousDepense;
+  double get monthSolde => monthDepot - monthDepense;
+  double get soldeWithPrevious => previousSolde + monthSolde;
+}
+
 /// Generates printable PDF reports for MAKOSO Services and MARINA Trans.
 /// Uses built-in Helvetica fonts (no network required).
 class RapportPdf {
@@ -209,6 +232,80 @@ class RapportPdf {
             },
           ),
         ],
+      ],
+    ));
+
+    return doc.save();
+  }
+
+  /// Builds the monthly report: financial summary per currency (previous
+  /// month, chosen month, balance with carry-over) and the month's deposits.
+  static Future<Uint8List> buildRapportMensuel({
+    required String companyName,
+    required String periodeLabel,
+    required String previousMonthLabel,
+    required String monthLabel,
+    required List<MonthlyCurrencySummary> summaries,
+    required List<DepotArgentRecord> depots,
+  }) async {
+    final font = pw.Font.helvetica();
+    final fontBold = pw.Font.helveticaBold();
+    final doc = pw.Document(title: 'Rapport mensuel $companyName');
+
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4.landscape,
+      margin: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+      header: (ctx) => _docHeader(companyName, periodeLabel, font, fontBold),
+      footer: (ctx) => _docFooter(ctx, font),
+      build: (ctx) => [
+        _sectionTitle('Situation financiere', fontBold),
+        pw.SizedBox(height: 6),
+        if (summaries.isEmpty)
+          _emptyNote('Aucune donnee financiere.', font)
+        else
+          pw.TableHelper.fromTextArray(
+            headers: [
+              'Monnaie',
+              'Depots fin $previousMonthLabel',
+              'Depenses fin $previousMonthLabel',
+              'Solde $previousMonthLabel',
+              'Depots $monthLabel',
+              'Depenses $monthLabel',
+              'Solde $monthLabel',
+              'Solde avec report',
+            ],
+            data: summaries
+                .map((s) => [
+                      s.currency,
+                      _n(s.previousDepot),
+                      _n(s.previousDepense),
+                      _n(s.previousSolde),
+                      _n(s.monthDepot),
+                      _n(s.monthDepense),
+                      _n(s.monthSolde),
+                      _n(s.soldeWithPrevious),
+                    ])
+                .toList(),
+            headerStyle:
+                pw.TextStyle(font: fontBold, fontSize: 7, color: PdfColors.white),
+            cellStyle: pw.TextStyle(font: font, fontSize: 8, color: _cDark),
+            headerDecoration: pw.BoxDecoration(color: _cHeaderBg),
+            oddRowDecoration: pw.BoxDecoration(color: _cRowAlt),
+            border: pw.TableBorder.all(color: _cBorder, width: 0.4),
+            cellAlignment: pw.Alignment.centerRight,
+            cellAlignments: {0: pw.Alignment.centerLeft},
+          ),
+        pw.SizedBox(height: 4),
+        pw.Text('Les depenses comptabilisees sont les depenses validees.',
+            style: pw.TextStyle(font: font, fontSize: 7, color: _cGrey)),
+        pw.SizedBox(height: 16),
+        _sectionTitle("Depots d'argent du mois (${depots.length})", fontBold),
+        pw.SizedBox(height: 6),
+        if (depots.isEmpty)
+          _emptyNote('Aucun depot pour ce mois.', font)
+        else
+          _cashDepotTable(depots, font, fontBold),
       ],
     ));
 

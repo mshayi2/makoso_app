@@ -182,6 +182,13 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
     return _monnaies.where((m) => m.uuid == uuid).firstOrNull?.label ?? '-';
   }
 
+  String? _validateMonnaieConvenu(String? monnaieUuid) {
+    if (_montantCtrl.text.trim().isNotEmpty && monnaieUuid == null) {
+      return 'Monnaie obligatoire si le montant convenu est renseigné';
+    }
+    return null;
+  }
+
   String _clientLabel(String? uuid) {
     if (uuid == null) return '-';
     return _marinaClients.where((c) => c.uuid == uuid).firstOrNull?.nom ?? '-';
@@ -1239,6 +1246,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
                             labelText: 'Monnaie',
                             border: OutlineInputBorder(),
                           ),
+                          validator: _validateMonnaieConvenu,
                           items: [
                             const DropdownMenuItem(
                               value: null,
@@ -1617,6 +1625,7 @@ class _VoyagesScreenState extends State<VoyagesScreen> {
             labelText: 'Monnaie',
             border: OutlineInputBorder(),
           ),
+          validator: _validateMonnaieConvenu,
           items: [
             const DropdownMenuItem(value: null, child: Text('—')),
             ..._monnaies.map(
